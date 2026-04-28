@@ -1,0 +1,101 @@
+name: Build RASP Cambridge calendar
+
+on:
+  schedule:
+    # Daily at 11:00 UTC (12:00 BST in summer, 11:00 GMT in winter)
+    # RASP morning model run finishes ~10:00 UK, so 11:00 UTC catches
+    # the freshest "today" plus next-day forecasts.
+    - cron: "0 11 * * *"
+  workflow_dispatch:   # Allow manual runs from the Actions tab.
+  push:
+    branches: [main]
+    paths:
+      - "rasp_stars.py"
+      - "requirements.txt"
+      - ".github/workflows/build-rasp.yml"
+
+# Permission needed to commit the regenerated ICS back to the repo.
+permissions:
+  contents: write
+
+# Avoid two scheduled runs racing if one is slow.
+concurrency:
+  group: build-rasp
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate calendar
+        run: |
+          mkdir -p public
+          python rasp_stars.py \
+            --out-dir ./public/charts \
+            --ics ./public/cambridge_rasp.ics
+
+      - name: Add an index page (optional, for browsing)
+        run: |
+          cat > public/index.html <<'HTML'
+          <!doctype html>
+          <html><head><meta charset="utf-8">
+          <title>RASP Cambridge</title>
+          <style>body{font-family:system-ui;max-width:42em;margin:2em auto;padding:0 1em}</style>
+          </head><body>
+          <h1>RASP Cambridge - 7-day star forecast</h1>
+          <p>Subscribe to the calendar:
+            <code>webcal://qlsecurity-rasp.example.github.io/cambridge_rasp.ics</code>
+          </p>
+          <p>Or download the latest ICS:
+            <a href="cambridge_rasp.ics">cambridge_rasp.ics</a>
+          </p>
+          <p>Audit-trail PNG charts are in <a href="charts/">/charts</a>.</p>
+          <p><em>Last refreshed: this file is regenerated daily at 11:00 UTC
+          via GitHub Actions.</em></p>
+          </body></html>
+          HTML
+
+      - name: Commit refreshed calendar
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/
+          # Only commit if something actually changed.
+          if git diff --cached --quiet; then
+            echo "No changes - RASP unchanged since last run."
+          else
+            git commit -m "Refresh RASP calendar $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
+
+      - name: Upload as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
