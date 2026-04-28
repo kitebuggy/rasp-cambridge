@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# rasp_stars.py - extract RASP UK 'Stars' forecast values from PNG charts
+#                 and emit a subscribable ICS calendar.
+#
+# Copyright (C) 2026  Jason Holloway and contributors
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 Fetch RASP UK 'Stars' forecast chart for a location (default: Cambridge)
 and extract numeric values by parsing the PNG pixels.
@@ -6,7 +23,7 @@ and extract numeric values by parsing the PNG pixels.
 Output:
   - CSV of half-hourly star ratings for each of the 7 forecast days
   - Optional ICS calendar file with one all-day event per day containing
-    the peak + mean star rating in the summary.
+    a fly-score summary, a Unicode sparkline, and the original chart.
 
 Usage:
   python3 rasp_stars.py --out-dir ./out --ics cambridge_rasp.ics
@@ -164,25 +181,31 @@ def parse_stars_png(data: bytes) -> list[tuple[str, float]]:
 # We then normalise to a 0-5 scale so the calendar title reads like a
 # familiar star rating.  FLY_SCORE_ANCHOR is the "full 5-star" day.
 #
-# Anchor calibration (Jason, April 2026):
+# Threshold + anchor calibration:
+# 2 stars is the practical floor for any cross-country flying - below that
+# you might soar locally but you're not getting away.  So the fly score
+# integrates star-hours above the 2* threshold, which directly answers
+# "is this an XC-worthy day?".
+#
 # A realistic UK 5* day is sun-driven and follows the shape:
 #   10:00-11:00  3-4*  ramp-up
 #   11:00-12:00  4-5*  ramp
 #   12:00-17:00  5*    plateau
 #   17:00-19:00  3-4*  ramp-down
-# That's ~30 star-hours above the 1* threshold - not a flat 24h of 5*,
-# which doesn't exist at these latitudes.  We anchor 30 sh to 5.0 so:
+# That gives ~22 star-hours above 2*, not a flat 24h of 5* (which
+# doesn't exist at these latitudes).  Anchoring 18 sh to 5.0 leaves a
+# little headroom so a sustained 5* day is unambiguously 5*:
 #
-#   5 *   genuinely exceptional UK day (1-2 per year, sustained 5* core)
-#   4 *   great UK XC day - 4* plateau with healthy shoulders (~24 sh)
-#   3 *   solid, committable XC day (~18 sh)
-#   2 *   local soaring + maybe a small task (~12 sh)
-#   1 *   scratchy local only (~6 sh)
-#   0 *   not flyable
+#   5 *   exceptional UK day - sustained 5* core (1-2 per year)
+#   4 *   great XC day - 4* plateau plus healthy shoulders (~14 sh)
+#   3 *   solid, committable XC (~10 sh)
+#   2 *   marginal XC, mostly local (~6 sh)
+#   1 *   brief XC-able window only (~3 sh)
+#   0 *   not XC-able (peak < 2*)
 #
 # Tune this after a season of real-world feedback.
-FLY_SCORE_THRESHOLD = 1.0   # stars
-FLY_SCORE_ANCHOR = 30.0     # star-hours above threshold that maps to 5.0
+FLY_SCORE_THRESHOLD = 2.0   # stars - XC-able floor
+FLY_SCORE_ANCHOR = 18.0     # star-hours above threshold that maps to 5.0
 
 
 @dataclass
@@ -192,12 +215,14 @@ class DaySummary:
     peak: float
     mean: float
     soarable_hours: float          # hours at >= 1.0 stars
-    good_hours: float              # hours at >= 2.0 stars
+    good_hours: float              # hours at >= 2.0 stars (XC-able)
     great_hours: float             # hours at >= 3.0 stars
     star_hours: float              # star-hours above FLY_SCORE_THRESHOLD (raw)
     fly_score: float               # normalised 0-5 star rating
     peak_start: str                # HH:MM where peak first reached
     peak_end: str                  # HH:MM where peak last held
+    xc_start: str                  # first HH:MM at >= 2 stars (or "")
+    xc_end: str                    # last HH:MM at >= 2 stars (or "")
     slots: list[tuple[str, float]]
     png: bytes = b""               # raw PNG bytes for embedding in ICS
 
@@ -215,6 +240,15 @@ def summarise(date: dt.date, model: str, slots: list[tuple[str, float]]) -> DayS
     fly_score = min(5.0, star_hours * 5.0 / FLY_SCORE_ANCHOR)
     peak_mask = values == peak
     peak_times = [t for t, _ in np.array(slots, dtype=object)[peak_mask]]
+    # XC window: first..last slot at >= 2 stars.  Outer envelope - any sub-2*
+    # interruption within that window is implicit in the sparkline.
+    xc_idx = np.where(values >= 2.0)[0]
+    if xc_idx.size:
+        xc_start = slots[int(xc_idx[0])][0]
+        xc_end   = slots[int(xc_idx[-1])][0]
+    else:
+        xc_start = ""
+        xc_end = ""
     return DaySummary(
         date=date, model=model, peak=peak, mean=mean,
         soarable_hours=soarable, good_hours=good, great_hours=great,
@@ -222,6 +256,8 @@ def summarise(date: dt.date, model: str, slots: list[tuple[str, float]]) -> DayS
         fly_score=round(fly_score, 1),
         peak_start=peak_times[0] if peak_times else "",
         peak_end=peak_times[-1] if peak_times else "",
+        xc_start=xc_start,
+        xc_end=xc_end,
         slots=slots,
     )
 
@@ -259,6 +295,147 @@ def write_summary_csv(path: Path, summaries: list[DaySummary]) -> None:
 def _ics_escape(text: str) -> str:
     return (text.replace("\\", "\\\\").replace(",", "\\,")
                 .replace(";", "\\;").replace("\n", "\\n"))
+
+
+def _spark(values: list[float]) -> str:
+    """
+    8-level Unicode block sparkline (▁▂▃▄▅▆▇█) of a stars curve.
+    Sub-0.3* renders as a space so dead time is visibly empty.
+    Glyphs are full-width across system fonts (proportional or not),
+    so the sparkline aligns even in Outlook / Gmail rendering.
+    """
+    blocks = " ▁▂▃▄▅▆▇█"
+    out = []
+    for v in values:
+        v = max(0.0, min(6.0, v))
+        idx = int(round(v / 6.0 * 8))   # 0..8
+        out.append(blocks[idx])
+    return "".join(out)
+
+
+def _xc_hours(s: "DaySummary") -> float:
+    """Hours at >= FLY_SCORE_THRESHOLD stars (cached for body text)."""
+    return s.good_hours   # threshold is 2.0; good_hours already counts >=2
+
+
+def _build_description(s: "DaySummary", location: str) -> str:
+    """
+    Plain-text DESCRIPTION shown by every calendar client (incl. Google).
+    Order: headline, XC window, peak, sparkline.
+    """
+    head = f"{s.date.strftime('%a %d %b %Y')} ({s.model}) - {location}"
+    body_lines = [head]
+    if s.xc_start:
+        body_lines.append(
+            f"XC window (≥2★): {s.xc_start}-{s.xc_end} "
+            f"({_xc_hours(s):.1f}h)"
+        )
+        peak_bits = [
+            f"Peak {s.peak:.1f}★ at {s.peak_start}"
+            + (f"-{s.peak_end}" if s.peak_end != s.peak_start else ""),
+            f"mean {s.mean:.1f}★",
+        ]
+        if s.great_hours > 0:
+            peak_bits.append(f"≥3★ for {s.great_hours:.1f}h")
+        body_lines.append(", ".join(peak_bits))
+    elif s.peak >= 1.0:
+        body_lines.append(
+            f"No XC window - peak only {s.peak:.1f}★ at {s.peak_start}"
+        )
+    else:
+        body_lines.append(f"Not flyable - peak only {s.peak:.1f}★")
+    spark_chars = _spark([v for _, v in s.slots])
+    first_t = s.slots[0][0]
+    last_t  = s.slots[-1][0]
+    body_lines += [
+        "",
+        f"{first_t} {spark_chars} {last_t}",
+        "(each block = 30 min, height ∝ stars)",
+    ]
+    return "\n".join(body_lines)
+
+
+def _build_html(s: "DaySummary", location: str, b64: str) -> str:
+    """
+    Rich HTML for X-ALT-DESC.  Renders in Apple Calendar reliably and in
+    Outlook/MS365 most of the time.  Inline styles only - external CSS
+    and class= attributes are stripped by most calendar clients.
+    """
+    date_h = s.date.strftime("%A %d %b %Y")
+    if s.xc_start:
+        xc_html = (
+            f"<b>XC window (≥2★):</b> {s.xc_start}&ndash;{s.xc_end} "
+            f"({_xc_hours(s):.1f}h)"
+        )
+        peak_bits = [
+            f"Peak {s.peak:.1f}★ at {s.peak_start}"
+            + (f"&ndash;{s.peak_end}" if s.peak_end != s.peak_start else ""),
+            f"mean {s.mean:.1f}★",
+        ]
+        if s.great_hours > 0:
+            peak_bits.append(f"&ge;3★ for {s.great_hours:.1f}h")
+        peak_h = ", ".join(peak_bits)
+    elif s.peak >= 1.0:
+        xc_html = (
+            f"<b>No XC window</b> &mdash; peak only {s.peak:.1f}★ "
+            f"at {s.peak_start}"
+        )
+        peak_h = f"Mean {s.mean:.1f}★"
+    else:
+        xc_html = (
+            f"<b>Not flyable</b> &mdash; peak only {s.peak:.1f}★"
+        )
+        peak_h = ""
+    # Half-hour table: time | stars | bar.  Width = stars * 36px (5* = 180px).
+    rows = []
+    for t, v in s.slots:
+        bar_px = int(round(v * 36))
+        is_xc = v >= 2.0
+        td_time = (
+            f'<td style="text-align:right;color:#888;'
+            f'font-variant-numeric:tabular-nums;'
+            f'padding:1px 8px 1px 0">{t}</td>'
+        )
+        td_num = (
+            f'<td style="text-align:right;'
+            f'font-variant-numeric:tabular-nums;'
+            f'padding:1px 6px 1px 0;'
+            f'{"font-weight:600" if is_xc else ""}">'
+            f'{v:.1f}</td>'
+        )
+        bar_color = "#cc4ecc" if is_xc else "#ee82ee"
+        td_bar = (
+            f'<td style="padding:1px 0">'
+            f'<div style="width:{bar_px}px;height:11px;'
+            f'background:{bar_color};border-radius:2px"></div>'
+            f'</td>'
+        )
+        tr_style = ' style="background:#f7eaf7"' if is_xc else ""
+        rows.append(f"<tr{tr_style}>{td_time}{td_num}{td_bar}</tr>")
+    table = (
+        '<table cellspacing="0" cellpadding="0" '
+        'style="border-collapse:collapse;'
+        'font-family:-apple-system,system-ui,sans-serif;'
+        'font-size:13px;margin-top:8px">'
+        + "".join(rows) + "</table>"
+    )
+    data_uri = f"data:image/png;base64,{b64}"
+    return (
+        '<html><body style="font-family:-apple-system,system-ui,sans-serif">'
+        f'<p style="margin:0 0 4px 0;font-size:18px">'
+        f'<b>{s.fly_score:.1f} ★</b> &mdash; {date_h}</p>'
+        f'<p style="margin:0;color:#444">{location} ({s.model})</p>'
+        f'<p style="margin:8px 0 4px 0">{xc_html}</p>'
+        f'<p style="margin:0 0 8px 0;color:#555">{peak_h}</p>'
+        f'<p style="margin:8px 0 0 0;color:#777;font-size:12px">'
+        f'Half-hour breakdown (≥2★ highlighted):</p>'
+        f'{table}'
+        f'<p style="margin:12px 0 4px 0;color:#777;font-size:12px">'
+        f'Original RASP chart:</p>'
+        f'<p style="margin:0"><img src="{data_uri}" '
+        f'alt="RASP stars chart" style="max-width:100%"></p>'
+        '</body></html>'
+    )
 
 
 def _fold_ics_line(line: str) -> str:
@@ -300,7 +477,7 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//QL Security//RASP Cambridge//EN",
+        "PRODID:-//rasp-cambridge//EN",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
         f"X-WR-CALNAME:RASP Stars - {location}",
@@ -309,18 +486,10 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
     for s in summaries:
         # Calendar title: just "<fly_score> ★" on the 0-5 scale.
         summary = f"{s.fly_score:.1f} \u2605"
-        description = (
-            f"RASP {s.model} for {location}\\n"
-            f"Fly score {s.fly_score:.1f}/5 "
-            f"(from {s.star_hours:.1f} star-hours above 1*)\\n"
-            f"Peak {s.peak:.1f}* (held {s.peak_start}-{s.peak_end})\\n"
-            f"Mean {s.mean:.1f}*\\n"
-            f">=1* for {s.soarable_hours:.1f}h, >=2* for {s.good_hours:.1f}h, "
-            f">=3* for {s.great_hours:.1f}h"
-        )
+        description = _build_description(s, location)
         dtstart = s.date.strftime("%Y%m%d")
         dtend = (s.date + dt.timedelta(days=1)).strftime("%Y%m%d")
-        uid = f"rasp-{location.lower()}-{dtstart}@qlsecurity.co.uk"
+        uid = f"rasp-{location.lower()}-{dtstart}@rasp-cambridge"
         event_lines = [
             "BEGIN:VEVENT",
             f"UID:{uid}",
@@ -331,10 +500,10 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
             f"DESCRIPTION:{_ics_escape(description)}",
             f"LOCATION:{_ics_escape(location)}",
         ]
-        # Embed the RASP stars PNG as an inline attachment.  BASE64-encoded
-        # binary per RFC 5545 s3.8.1.1; filename hints for clients that
-        # render/export the attachment.  Apple Calendar and MS Outlook
-        # both honour this; Google Calendar does not.
+        # Embed the RASP stars PNG as an inline attachment, plus a rich HTML
+        # alternative with the half-hour table.  BASE64-encoded binary per
+        # RFC 5545 s3.8.1.1.  Apple Calendar and MS Outlook honour both;
+        # Google Calendar strips them and falls back to plain DESCRIPTION.
         if s.png:
             b64 = base64.b64encode(s.png).decode("ascii")
             fname = f"rasp_{location.lower()}_{dtstart}_{s.model.replace('+', '_')}.png"
@@ -343,25 +512,7 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
                 f"X-APPLE-FILENAME={fname};FILENAME={fname}:{b64}"
             )
             event_lines.append(attach)
-        # Richer HTML description with an inline data-URI image, for clients
-        # (notably Outlook/MS365) that honour X-ALT-DESC.
-        if s.png:
-            data_uri = f"data:image/png;base64,{b64}"
-            date_h = s.date.strftime("%A %d %b %Y")
-            html = (
-                "<html><body>"
-                f"<p><b>{s.fly_score:.1f} \u2605  -  {date_h}</b></p>"
-                f"<p>RASP {s.model} for {location}<br>"
-                f"Fly score {s.fly_score:.1f}/5 "
-                f"(from {s.star_hours:.1f} star-hours above 1*)<br>"
-                f"Peak {s.peak:.1f}* ({s.peak_start}-{s.peak_end}),"
-                f" mean {s.mean:.1f}*<br>"
-                f"&ge;1* for {s.soarable_hours:.1f}h, "
-                f"&ge;2* for {s.good_hours:.1f}h, "
-                f"&ge;3* for {s.great_hours:.1f}h</p>"
-                f'<p><img src="{data_uri}" alt="RASP stars chart"></p>'
-                "</body></html>"
-            )
+            html = _build_html(s, location, b64)
             event_lines.append(
                 f"X-ALT-DESC;FMTTYPE=text/html:{_ics_escape(html)}"
             )
