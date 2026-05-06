@@ -1,5 +1,18 @@
+# Local virtual environment
 .venv/
+
+# Local audit-trail outputs - the canonical copies live under public/
+# in the Actions-built calendar, never at the repo root.
 out/
+/cambridge_rasp.ics
+
+# Legacy prototype probes from the chart reverse-engineering phase.
+/probe_archive.png
+/stars_UK4_today.png
+
+# Python build cruft
 __pycache__/
 *.pyc
+
+# macOS Finder noise
 .DS_Store
