@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//rasp-cambridge//EN
@@ -6476,3 +6477,5 @@ X-ALT-DESC;FMTTYPE=text/html:<html><body style="font-family:-apple-system\,
 TRANSP:TRANSPARENT
 END:VEVENT
 END:VCALENDAR
+=======
+>>>>>>> 82b66e9 (Updated scheduler)
