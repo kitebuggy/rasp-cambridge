@@ -2,10 +2,13 @@ name: Build RASP Cambridge calendar
 
 on:
   schedule:
-    # Daily at 11:00 UTC (12:00 BST in summer, 11:00 GMT in winter)
-    # RASP morning model run finishes ~10:00 UK, so 11:00 UTC catches
-    # the freshest "today" plus next-day forecasts.
-    - cron: "0 11 * * *"
+    # Daily at 05:00 UTC = 06:00 BST in summer (gliding season) /
+    # 05:00 GMT in winter.  GitHub Actions cron is UTC-only - no DST
+    # awareness - so we pick the time that's right during the season
+    # the calendar matters and accept being an hour early in winter.
+    # Switch to "0 6 * * *" if you'd rather it be 06:00 UK in winter
+    # at the cost of 07:00 BST in summer.
+    - cron: "0 5 * * *"
   workflow_dispatch:   # Allow manual runs from the Actions tab.
   push:
     branches: [main]
@@ -49,22 +52,26 @@ jobs:
 
       - name: Add an index page (optional, for browsing)
         run: |
-          cat > public/index.html <<'HTML'
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          REPO="${GITHUB_REPOSITORY##*/}"
+          # Lowercase the owner because GitHub Pages serves from the
+          # lowercased subdomain regardless of the canonical username case.
+          OWNER_LC="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          cat > public/index.html <<HTML
           <!doctype html>
           <html><head><meta charset="utf-8">
-          <title>RASP Cambridge</title>
-          <style>body{font-family:system-ui;max-width:42em;margin:2em auto;padding:0 1em}</style>
+          <title>RASP ${REPO}</title>
+          <style>body{font-family:system-ui;max-width:42em;margin:2em auto;padding:0 1em}
+          code{background:#f4f4f4;padding:2px 6px;border-radius:3px}</style>
           </head><body>
-          <h1>RASP Cambridge - 7-day star forecast</h1>
-          <p>Subscribe to the calendar:
-            <code>webcal://qlsecurity-rasp.example.github.io/cambridge_rasp.ics</code>
-          </p>
+          <h1>RASP ${REPO} - 7-day star forecast</h1>
+          <p>Subscribe to the calendar from your calendar app:</p>
+          <p><code>webcal://${OWNER_LC}.github.io/${REPO}/cambridge_rasp.ics</code></p>
           <p>Or download the latest ICS:
-            <a href="cambridge_rasp.ics">cambridge_rasp.ics</a>
-          </p>
+            <a href="cambridge_rasp.ics">cambridge_rasp.ics</a></p>
           <p>Audit-trail PNG charts are in <a href="charts/">/charts</a>.</p>
-          <p><em>Last refreshed: this file is regenerated daily at 11:00 UTC
-          via GitHub Actions.</em></p>
+          <p><em>Last refreshed: this file is regenerated daily at 05:00 UTC
+          (06:00 BST / 05:00 GMT) via GitHub Actions.</em></p>
           </body></html>
           HTML
 
