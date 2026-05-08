@@ -26,6 +26,12 @@ concurrency:
   group: build-rasp
   cancel-in-progress: false
 
+# Opt every action into Node.js 24 ahead of GitHub's 2026-06-02 cut-over.
+# Clears the "Node.js 20 actions are deprecated" warnings.  Safe to remove
+# once that date has passed and the runner default is Node 24.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     runs-on: ubuntu-latest
