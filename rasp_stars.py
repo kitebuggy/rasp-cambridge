@@ -60,11 +60,19 @@ DEFAULT_LAT = 52.21
 DEFAULT_LON = 0.13
 DEFAULT_NAME = "Cambridge"
 
-# RASP charts always start at 0700.  Today's chart (UK4) runs to 2100;
-# forecast days (UK4+N, UK12+N) run to 1900.  So N_SLOTS is 25 or 29.
+# RASP charts always start at 0700 and step every 30 min.  The chart end
+# time varies by model:
+#   today (UK4)            29 ticks  =>  0700..2100
+#   short-range (UK4+N)    25 ticks  =>  0700..1900
+#   medium-range (UK12+N)  23-25 ticks; longer-range days are sometimes
+#                          truncated to 0700..1800 (23 ticks) when the
+#                          model run for that day hasn't fully populated.
+# We accept any tick count in the plausible range and time-stamp slots
+# from HOUR_START at SLOT_MIN-minute cadence.
 HOUR_START = 7
-N_SLOTS_FORECAST = 25   # 0700..1900 every 30 min
-N_SLOTS_TODAY    = 29   # 0700..2100 every 30 min
+SLOT_MIN   = 30
+N_SLOTS_MIN = 12   # below this it's almost certainly a corrupt chart
+N_SLOTS_MAX = 32   # leaves headroom if the chart ever extends to 2200
 
 # The stars curve is drawn as solid "violet" (238,130,238) PNG pixels.
 LINE_RGB = (238, 130, 238)
@@ -129,10 +137,10 @@ def parse_stars_png(data: bytes) -> list[tuple[str, float]]:
     line_mask = np.all(arr == np.array(LINE_RGB), axis=2)
 
     x_ticks, y_ticks = _find_ticks(arr)
-    if len(x_ticks) not in (N_SLOTS_FORECAST, N_SLOTS_TODAY):
+    if not (N_SLOTS_MIN <= len(x_ticks) <= N_SLOTS_MAX):
         raise RuntimeError(
-            f"Expected {N_SLOTS_FORECAST} or {N_SLOTS_TODAY} x-ticks, got "
-            f"{len(x_ticks)}"
+            f"Implausible x-tick count {len(x_ticks)} "
+            f"(expected {N_SLOTS_MIN}..{N_SLOTS_MAX})"
         )
     n_slots = len(x_ticks)
     if len(y_ticks) < 2:
@@ -164,7 +172,7 @@ def parse_stars_png(data: bytes) -> list[tuple[str, float]]:
                 stars = 0.0
         else:
             stars = 0.0
-        minutes = HOUR_START * 60 + 30 * i
+        minutes = HOUR_START * 60 + SLOT_MIN * i
         hh, mm = divmod(minutes, 60)
         out.append((f"{hh:02d}:{mm:02d}", stars))
     return out
