@@ -2,13 +2,18 @@ name: Build RASP Cambridge calendar
 
 on:
   schedule:
-    # Daily at 05:00 UTC = 06:00 BST in summer (gliding season) /
-    # 05:00 GMT in winter.  GitHub Actions cron is UTC-only - no DST
-    # awareness - so we pick the time that's right during the season
-    # the calendar matters and accept being an hour early in winter.
-    # Switch to "0 6 * * *" if you'd rather it be 06:00 UK in winter
-    # at the cost of 07:00 BST in summer.
+    # Three daily runs, all UTC (GitHub Actions cron is UTC-only with no
+    # DST awareness).  Times chosen against the gliding season (BST):
+    #   05:00 UTC = 06:00 BST  - early-bird view; UK4 series ready
+    #   08:00 UTC = 09:00 BST  - after RASP's morning UK12 regen (~06:50 UTC)
+    #   10:00 UTC = 11:00 BST  - belt-and-braces in case earlier runs missed
+    # Each run regenerates the full ICS from scratch.  Stale charts (those
+    # served before RASP has refreshed them for the day) are rejected in
+    # rasp_stars.py via Last-Modified, so an early run that catches only
+    # half the days is automatically corrected by the later runs.
     - cron: "0 5 * * *"
+    - cron: "0 8 * * *"
+    - cron: "0 10 * * *"
   workflow_dispatch:   # Allow manual runs from the Actions tab.
   push:
     branches: [main]
@@ -49,9 +54,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Prune previous build artefacts
+        # Each run regenerates everything; carrying stale PNGs/CSVs from
+        # previous runs would pollute the repo and the deployed Pages site.
+        # Wipe the charts directory and the root ICS each time.
+        run: |
+          rm -rf public/charts
+          rm -f  public/cambridge_rasp.ics
+
       - name: Generate calendar
         run: |
-          mkdir -p public
+          mkdir -p public/charts
           python rasp_stars.py \
             --out-dir ./public/charts \
             --ics ./public/cambridge_rasp.ics

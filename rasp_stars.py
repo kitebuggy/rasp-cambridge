@@ -81,7 +81,18 @@ LINE_RGB = (238, 130, 238)
 # -----------------------------------------------------------------------------
 # Helpers
 
+class StaleChartError(RuntimeError):
+    """Raised when RASP serves a chart from a previous day's model run."""
+
+
 def fetch_png(model: str, lat: float, lon: float) -> bytes:
+    """
+    Download one RASP chart PNG.  Rejects stale charts by inspecting the
+    server's Last-Modified header: if RASP hasn't yet regenerated today's
+    forecast for this model, it serves yesterday's file (with yesterday's
+    declared date inside the PNG).  We refuse to use such files - the next
+    scheduled workflow run will retry once RASP has caught up.
+    """
     params = {
         "model": model,
         "lat": f"{lat:.5f}",
@@ -91,8 +102,28 @@ def fetch_png(model: str, lat: float, lon: float) -> bytes:
     req = Request(url, headers={"User-Agent": "rasp-stars-poller/1.0"})
     with urlopen(req, timeout=30) as resp:
         data = resp.read()
+        lm_header = resp.headers.get("Last-Modified", "")
     if not data.startswith(b"\x89PNG"):
         raise RuntimeError(f"Expected PNG, got {data[:16]!r} from {url}")
+    # Compare Last-Modified day (UTC) with today (UTC).  If older than today,
+    # the chart is from a previous model run and almost certainly has the
+    # wrong calendar date stamped in its title.
+    if lm_header:
+        try:
+            # RFC 7231 IMF-fixdate; eg "Wed, 13 May 2026 10:22:36 GMT".
+            lm = dt.datetime.strptime(lm_header.rstrip("GMT").strip(),
+                                      "%a, %d %b %Y %H:%M:%S")
+            lm = lm.replace(tzinfo=dt.timezone.utc)
+        except ValueError:
+            lm = None
+        if lm is not None:
+            today_utc = dt.datetime.now(dt.timezone.utc).date()
+            if lm.date() < today_utc:
+                raise StaleChartError(
+                    f"chart Last-Modified {lm.date()} is from before "
+                    f"today ({today_utc}); RASP hasn't refreshed this "
+                    f"model yet"
+                )
     return data
 
 
@@ -326,10 +357,11 @@ def _xc_hours(s: "DaySummary") -> float:
     return s.good_hours   # threshold is 2.0; good_hours already counts >=2
 
 
-def _build_description(s: "DaySummary", location: str) -> str:
+def _build_description(s: "DaySummary", location: str,
+                       generated_utc: dt.datetime) -> str:
     """
     Plain-text DESCRIPTION shown by every calendar client (incl. Google).
-    Order: headline, XC window, peak, sparkline.
+    Order: headline, XC window, peak, sparkline, generation timestamp.
     """
     head = f"{s.date.strftime('%a %d %b %Y')} ({s.model}) - {location}"
     body_lines = [head]
@@ -359,11 +391,14 @@ def _build_description(s: "DaySummary", location: str) -> str:
         "",
         f"{first_t} {spark_chars} {last_t}",
         "(each block = 30 min, height ∝ stars)",
+        "",
+        f"Forecast retrieved {generated_utc.strftime('%Y-%m-%d %H:%M UTC')}",
     ]
     return "\n".join(body_lines)
 
 
-def _build_html(s: "DaySummary", location: str, b64: str) -> str:
+def _build_html(s: "DaySummary", location: str, b64: str,
+                generated_utc: dt.datetime) -> str:
     """
     Rich HTML for X-ALT-DESC.  Renders in Apple Calendar reliably and in
     Outlook/MS365 most of the time.  Inline styles only - external CSS
@@ -442,6 +477,9 @@ def _build_html(s: "DaySummary", location: str, b64: str) -> str:
         f'Original RASP chart:</p>'
         f'<p style="margin:0"><img src="{data_uri}" '
         f'alt="RASP stars chart" style="max-width:100%"></p>'
+        f'<p style="margin:12px 0 0 0;color:#999;font-size:11px">'
+        f'Forecast retrieved '
+        f'{generated_utc.strftime("%Y-%m-%d %H:%M UTC")}</p>'
         '</body></html>'
     )
 
@@ -481,7 +519,8 @@ def _fold_ics_line(line: str) -> str:
 
 
 def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
-    now = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    generated_utc = dt.datetime.now(dt.timezone.utc)
+    now = generated_utc.strftime("%Y%m%dT%H%M%SZ")
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -494,7 +533,7 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
     for s in summaries:
         # Calendar title: just "<fly_score> ★" on the 0-5 scale.
         summary = f"{s.fly_score:.1f} \u2605"
-        description = _build_description(s, location)
+        description = _build_description(s, location, generated_utc)
         dtstart = s.date.strftime("%Y%m%d")
         dtend = (s.date + dt.timedelta(days=1)).strftime("%Y%m%d")
         uid = f"rasp-{location.lower()}-{dtstart}@rasp-cambridge"
@@ -520,7 +559,7 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
                 f"X-APPLE-FILENAME={fname};FILENAME={fname}:{b64}"
             )
             event_lines.append(attach)
-            html = _build_html(s, location, b64)
+            html = _build_html(s, location, b64, generated_utc)
             event_lines.append(
                 f"X-ALT-DESC;FMTTYPE=text/html:{_ics_escape(html)}"
             )
@@ -547,6 +586,9 @@ def run(location: str, lat: float, lon: float,
         date = today + dt.timedelta(days=i)
         try:
             png = fetch_png(model, lat, lon)
+        except StaleChartError as e:
+            print(f"  [{date} {model}] STALE: {e}", file=sys.stderr)
+            continue
         except Exception as e:
             print(f"  [{date} {model}] fetch failed: {e}", file=sys.stderr)
             continue
