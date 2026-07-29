@@ -1,51 +1,44 @@
 {
-  "generated_utc": "2026-07-29T10:10:35Z",
+  "generated_utc": "2026-07-29T10:21:42Z",
   "run_date": "2026-07-29",
-  "complete": false,
-  "days_ok": 0,
-  "days_failed": 7,
+  "complete": true,
+  "days_ok": 7,
+  "days_failed": 0,
   "days": [
     {
       "date": "2026-07-29",
       "model": "UK4",
-      "status": "fetch",
-      "reason": "Expected PNG, got b'<!DOCTYPE html>\\n' from https://app.stratus.org.uk/blip/graph/blip_stars.php?model=UK4&lat=52.21000&lon=0.13000"
+      "status": "ok"
     },
     {
       "date": "2026-07-30",
       "model": "UK4+1",
-      "status": "fetch",
-      "reason": "Expected PNG, got b'<!DOCTYPE html>\\n' from https://app.stratus.org.uk/blip/graph/blip_stars.php?model=UK4%2B1&lat=52.21000&lon=0.13000"
+      "status": "ok"
     },
     {
       "date": "2026-07-31",
       "model": "UK4+2",
-      "status": "fetch",
-      "reason": "Expected PNG, got b'<!DOCTYPE html>\\n' from https://app.stratus.org.uk/blip/graph/blip_stars.php?model=UK4%2B2&lat=52.21000&lon=0.13000"
+      "status": "ok"
     },
     {
       "date": "2026-08-01",
       "model": "UK12+3",
-      "status": "fetch",
-      "reason": "Expected PNG, got b'<!DOCTYPE html>\\n' from https://app.stratus.org.uk/blip/graph/blip_stars.php?model=UK12%2B3&lat=52.21000&lon=0.13000"
+      "status": "ok"
     },
     {
       "date": "2026-08-02",
       "model": "UK12+4",
-      "status": "fetch",
-      "reason": "Expected PNG, got b'<!DOCTYPE html>\\n' from https://app.stratus.org.uk/blip/graph/blip_stars.php?model=UK12%2B4&lat=52.21000&lon=0.13000"
+      "status": "ok"
     },
     {
       "date": "2026-08-03",
       "model": "UK12+5",
-      "status": "fetch",
-      "reason": "Expected PNG, got b'<!DOCTYPE html>\\n' from https://app.stratus.org.uk/blip/graph/blip_stars.php?model=UK12%2B5&lat=52.21000&lon=0.13000"
+      "status": "ok"
     },
     {
       "date": "2026-08-04",
       "model": "UK12+6",
-      "status": "fetch",
-      "reason": "Expected PNG, got b'<!DOCTYPE html>\\n' from https://app.stratus.org.uk/blip/graph/blip_stars.php?model=UK12%2B6&lat=52.21000&lon=0.13000"
+      "status": "ok"
     }
   ]
 }
