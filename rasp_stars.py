@@ -36,6 +36,7 @@ import base64
 import csv
 import datetime as dt
 import io
+import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,6 +77,12 @@ N_SLOTS_MAX = 32   # leaves headroom if the chart ever extends to 2200
 
 # The stars curve is drawn as solid "violet" (238,130,238) PNG pixels.
 LINE_RGB = (238, 130, 238)
+
+# Shown in placeholder calendar entries.  Kept in one place so it stays in
+# step with the cron schedule in .github/workflows/build-rasp.yml.
+RETRY_NOTE_DEFAULT = ("The build retries hourly, 05:00-17:00 UTC, and this "
+                      "entry is replaced automatically as soon as the "
+                      "forecast is published.")
 
 
 # -----------------------------------------------------------------------------
@@ -266,6 +273,23 @@ class DaySummary:
     png: bytes = b""               # raw PNG bytes for embedding in ICS
 
 
+@dataclass
+class DayFailure:
+    """
+    One forecast day we could not produce a rating for.
+
+    We deliberately do NOT fall back to a previously-fetched value: a stale
+    star rating presented as current is worse than no rating at all, because
+    the reader has no way to tell the difference.  Instead the day is
+    published as a placeholder event that says so, and the next scheduled
+    run replaces it once RASP is serving the chart again.
+    """
+    date: dt.date
+    model: str
+    reason: str            # human-readable, shown in the calendar entry
+    kind: str              # "stale" | "fetch" | "parse"
+
+
 def summarise(date: dt.date, model: str, slots: list[tuple[str, float]]) -> DaySummary:
     values = np.array([v for _, v in slots])
     peak = float(values.max())
@@ -397,6 +421,61 @@ def _build_description(s: "DaySummary", location: str,
     return "\n".join(body_lines)
 
 
+PLACEHOLDER_SUMMARY = "⟳ RASP data unavailable"
+
+
+def _build_placeholder_description(f: "DayFailure", location: str,
+                                   generated_utc: dt.datetime,
+                                   retry_note: str) -> str:
+    """
+    Plain-text DESCRIPTION for a day whose chart could not be read.
+
+    States plainly that there is no forecast for this day rather than
+    implying a zero-star day, and tells the reader a retry is coming.
+    """
+    if f.kind == "stale":
+        what = ("RASP has not yet regenerated this model for today, so no "
+                "current forecast exists.")
+    elif f.kind == "fetch":
+        what = "The RASP server could not be reached."
+    else:
+        what = "The RASP chart was retrieved but could not be read."
+    return "\n".join([
+        f"{f.date.strftime('%a %d %b %Y')} ({f.model}) - {location}",
+        "",
+        "No forecast available for this day.",
+        what,
+        "",
+        "Deliberately left blank rather than showing an out-of-date "
+        "rating from an earlier run.",
+        retry_note,
+        "",
+        f"Detail: {f.reason}",
+        f"Last attempt {generated_utc.strftime('%Y-%m-%d %H:%M UTC')}",
+    ])
+
+
+def _build_placeholder_html(f: "DayFailure", location: str,
+                            generated_utc: dt.datetime,
+                            retry_note: str) -> str:
+    """Rich HTML twin of _build_placeholder_description (X-ALT-DESC)."""
+    text = _build_placeholder_description(f, location, generated_utc,
+                                          retry_note)
+    head, *rest = text.split("\n")
+    body = "".join(
+        f'<p style="margin:0 0 6px 0;color:#555">{ln}</p>'
+        for ln in rest if ln.strip()
+    )
+    return (
+        '<html><body style="font-family:-apple-system,system-ui,sans-serif">'
+        f'<p style="margin:0 0 4px 0;font-size:18px;color:#a33">'
+        f'<b>{PLACEHOLDER_SUMMARY}</b></p>'
+        f'<p style="margin:0 0 8px 0;color:#444">{head}</p>'
+        f'{body}'
+        '</body></html>'
+    )
+
+
 def _build_html(s: "DaySummary", location: str, b64: str,
                 generated_utc: dt.datetime) -> str:
     """
@@ -518,7 +597,9 @@ def _fold_ics_line(line: str) -> str:
     return "\r\n".join(parts)
 
 
-def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
+def write_ics(path: Path, summaries: list[DaySummary], location: str,
+              failures: list[DayFailure] | None = None,
+              retry_note: str = RETRY_NOTE_DEFAULT) -> None:
     generated_utc = dt.datetime.now(dt.timezone.utc)
     now = generated_utc.strftime("%Y%m%dT%H%M%SZ")
     lines = [
@@ -569,8 +650,67 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
         ]
         # Fold every event content line at 75 octets per RFC 5545 s3.1.
         lines += [_fold_ics_line(ln) for ln in event_lines]
+
+    # Placeholder events for days we could not rate.  Same UID scheme as the
+    # real events, so a later run that succeeds replaces the placeholder
+    # rather than sitting alongside it.
+    for f in (failures or []):
+        description = _build_placeholder_description(
+            f, location, generated_utc, retry_note)
+        html = _build_placeholder_html(
+            f, location, generated_utc, retry_note)
+        dtstart = f.date.strftime("%Y%m%d")
+        dtend = (f.date + dt.timedelta(days=1)).strftime("%Y%m%d")
+        uid = f"rasp-{location.lower()}-{dtstart}@rasp-cambridge"
+        event_lines = [
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{now}",
+            f"DTSTART;VALUE=DATE:{dtstart}",
+            f"DTEND;VALUE=DATE:{dtend}",
+            f"SUMMARY:{_ics_escape(PLACEHOLDER_SUMMARY)}",
+            f"DESCRIPTION:{_ics_escape(description)}",
+            f"X-ALT-DESC;FMTTYPE=text/html:{_ics_escape(html)}",
+            f"LOCATION:{_ics_escape(location)}",
+            "TRANSP:TRANSPARENT",
+            "END:VEVENT",
+        ]
+        lines += [_fold_ics_line(ln) for ln in event_lines]
+
     lines.append("END:VCALENDAR")
     path.write_text("\r\n".join(lines) + "\r\n")
+
+
+def write_state(path: Path, summaries: list[DaySummary],
+                failures: list[DayFailure], today: dt.date) -> dict:
+    """
+    Record what this run managed to fetch, so the next scheduled run can
+    decide whether it needs to do anything at all.
+
+    The hourly workflow reads this: if the last run covered today's date
+    and every model came back fresh, there is nothing to recheck and the
+    run exits in seconds.  Any gap means RASP was mid-refresh or down, and
+    the next hourly run tries again.
+    """
+    days = (
+        [{"date": s.date.isoformat(), "model": s.model, "status": "ok"}
+         for s in summaries]
+        + [{"date": f.date.isoformat(), "model": f.model,
+            "status": f.kind, "reason": f.reason}
+           for f in failures]
+    )
+    days.sort(key=lambda d: d["date"])
+    state = {
+        "generated_utc": dt.datetime.now(dt.timezone.utc)
+                           .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "run_date": today.isoformat(),
+        "complete": not failures,
+        "days_ok": len(summaries),
+        "days_failed": len(failures),
+        "days": days,
+    }
+    path.write_text(json.dumps(state, indent=2) + "\n")
+    return state
 
 
 # -----------------------------------------------------------------------------
@@ -578,25 +718,32 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str) -> None:
 
 def run(location: str, lat: float, lon: float,
         out_dir: Path, ics: Path | None,
-        today: dt.date | None = None) -> list[DaySummary]:
+        today: dt.date | None = None,
+        state: Path | None = None,
+        retry_note: str = RETRY_NOTE_DEFAULT,
+        ) -> tuple[list[DaySummary], list[DayFailure]]:
     out_dir.mkdir(parents=True, exist_ok=True)
     today = today or dt.date.today()
     summaries: list[DaySummary] = []
+    failures: list[DayFailure] = []
     for i, model in enumerate(DAY_MODELS):
         date = today + dt.timedelta(days=i)
         try:
             png = fetch_png(model, lat, lon)
         except StaleChartError as e:
             print(f"  [{date} {model}] STALE: {e}", file=sys.stderr)
+            failures.append(DayFailure(date, model, str(e), "stale"))
             continue
         except Exception as e:
             print(f"  [{date} {model}] fetch failed: {e}", file=sys.stderr)
+            failures.append(DayFailure(date, model, str(e), "fetch"))
             continue
         (out_dir / f"{date.isoformat()}_{model.replace('+', '_')}.png").write_bytes(png)
         try:
             slots = parse_stars_png(png)
         except Exception as e:
             print(f"  [{date} {model}] parse failed: {e}", file=sys.stderr)
+            failures.append(DayFailure(date, model, str(e), "parse"))
             continue
         s = summarise(date, model, slots)
         s.png = png
@@ -609,11 +756,16 @@ def run(location: str, lat: float, lon: float,
             f">=1*: {s.soarable_hours:>4.1f}h  >=2*: {s.good_hours:>4.1f}h  "
             f">=3*: {s.great_hours:>4.1f}h"
         )
+    for f in failures:
+        print(f"  {f.date} ({f.date.strftime('%a')}) {f.model:>7}  "
+              f"NO DATA ({f.kind}) - placeholder published")
     write_csv(out_dir / "halfhour.csv", summaries)
     write_summary_csv(out_dir / "summary.csv", summaries)
     if ics is not None:
-        write_ics(ics, summaries, location)
-    return summaries
+        write_ics(ics, summaries, location, failures, retry_note)
+    if state is not None:
+        write_state(state, summaries, failures, today)
+    return summaries, failures
 
 
 if __name__ == "__main__":
@@ -624,6 +776,17 @@ if __name__ == "__main__":
     p.add_argument("--out-dir", type=Path, default=Path("./out"))
     p.add_argument("--ics", type=Path, default=None,
                    help="Write an ICS calendar file to this path")
+    p.add_argument("--state", type=Path, default=None,
+                   help="Write a JSON build-state file to this path "
+                        "(used by the workflow to decide whether an hourly "
+                        "recheck is needed)")
     args = p.parse_args()
     print(f"RASP Stars for {args.location} ({args.lat},{args.lon})")
-    run(args.location, args.lat, args.lon, args.out_dir, args.ics)
+    summaries, failures = run(args.location, args.lat, args.lon,
+                              args.out_dir, args.ics, state=args.state)
+    if failures:
+        print(f"\n{len(failures)} of {len(DAY_MODELS)} days unavailable - "
+              f"placeholders published; an hourly recheck will retry.")
+    # Exit 0 either way: the placeholders are a valid, publishable result and
+    # the build must still deploy them.  Completeness is signalled through
+    # the state file, not the exit code.

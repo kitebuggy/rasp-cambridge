@@ -6,6 +6,18 @@
 out/
 /cambridge_rasp.ics
 
+# Generated build output.  These are rebuilt from scratch on every run and
+# published to GitHub Pages from the Actions *artifact*, which is tarred
+# from the runner's working tree - so tracking them in git does nothing for
+# subscribers and costs ~500 KB of permanent history per rebuild (the
+# base64-embedded PNGs mean the ICS never deltas usefully).
+#
+# What IS still committed under public/: build_state.json (the hourly
+# recheck reads it to decide whether it has work to do), the two CSVs and
+# index.html - all small, and a genuine audit trail.
+public/cambridge_rasp.ics
+public/charts/*.png
+
 # Legacy prototype probes from the chart reverse-engineering phase.
 /probe_archive.png
 /stars_UK4_today.png

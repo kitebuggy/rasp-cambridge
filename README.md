@@ -64,8 +64,11 @@ always renders, and the audit-trail PNGs are linkable from the repo's
    `https://<you>.github.io/<repo>/cambridge_rasp.ics`. Subscribe to it from
    your calendar app of choice as above.
 
-The workflow then runs daily at 11:00 UTC (catches the morning RASP run), and
-the ICS in your repo refreshes itself.
+The workflow then rebuilds at 05:00, 08:00 and 10:00 UTC (catching RASP's
+morning model runs) and redeploys the calendar to Pages. It also
+rechecks hourly between 06:00 and 17:00 UTC, but only rebuilds when the
+previous run came back short of a full seven days — see
+[When RASP is unavailable](#when-rasp-is-unavailable).
 
 ## What the "fly score" means
 
@@ -163,6 +166,7 @@ Optional flags:
 --lon 0.13           Longitude
 --out-dir ./out      Where audit-trail PNGs and CSVs go
 --ics PATH           Where to write the calendar file
+--state PATH         Where to write the JSON build-state file
 ```
 
 Output:
@@ -173,12 +177,63 @@ Output:
 | `out/halfhour.csv`            | Every half-hour rating, 7 days              |
 | `out/summary.csv`             | One row per day with fly score and metrics  |
 | `cambridge_rasp.ics`          | The calendar file                           |
+| `build_state.json`            | Which models were fetched (drives rechecks) |
+
+### What is and isn't committed
+
+The workflow publishes `public/` to GitHub Pages from the Actions artifact,
+which is tarred from the runner's working tree — so nothing needs to be
+committed for subscribers to get it. The regenerated ICS and chart PNGs are
+therefore in `.gitignore`: they change wholesale on every run (base64-embedded
+PNGs don't delta), and tracking them added ~500 KB of permanent history per
+rebuild. They're still built, still deployed, still linkable at
+`/charts/<date>_<model>.png` — just not in git.
+
+`build_state.json`, the CSVs and `index.html` *are* committed: the first
+because the next hourly recheck has to read it, the rest because they're small
+and make a usable audit trail.
+
+## When RASP is unavailable
+
+RASP is a volunteer-run service and sometimes doesn't answer, or hasn't yet
+regenerated a model when the build asks for it. The rule here is that a
+**stale rating is worse than no rating** — a 4★ reading from yesterday's model
+run looks identical to a fresh one, and there's no way for the reader to tell.
+So the build never carries a value forward. Every run rebuilds all seven days
+from live charts, and a day that can't be read is published as a placeholder
+event instead:
+
+```
+   ⟳ RASP data unavailable
+```
+
+Opening it explains which failure it was — server unreachable, chart not yet
+regenerated for today, or chart retrieved but unparseable — and says a recheck
+is coming. The scheduled hourly recheck then replaces it (same event UID) as
+soon as RASP is serving that chart again, so a bad morning costs you an hour
+of one day's entry rather than the rest of the day.
+
+Each run writes `public/build_state.json` recording which of the seven models
+came back:
+
+```json
+{ "run_date": "2026-07-29", "complete": false, "days_ok": 6, "days_failed": 1,
+  "days": [ { "date": "2026-08-03", "model": "UK12+5", "status": "stale",
+              "reason": "chart Last-Modified 2026-07-28 is from before today" } ] }
+```
+
+The hourly recheck reads that file first: if the last run covered today with
+all seven days, it exits in a few seconds without rebuilding, committing or
+redeploying. So the extra runs cost almost nothing on a normal day and only do
+real work when there's a gap to close. The 05:00 / 08:00 / 10:00 runs always
+rebuild regardless, so the volatile UK4 "today" curve still picks up RASP's
+intra-day reruns.
 
 ## Caveats
 
 - RASP model runs update through the day. The "today" curve (UK4) refreshes
   more than once; fetching after ~10 am UK gives the most trustworthy
-  outlook for the afternoon — which is what the daily 11:00 UTC build does.
+  outlook for the afternoon — which is what the 10:00 UTC build does.
 - The parser assumes the chart template is unchanged. If the RASP admins
   alter the chart colour, axis range, or size, the line-colour constant
   may need updating. The audit-trail PNGs in `/charts` make any drift

@@ -2,18 +2,24 @@ name: Build RASP Cambridge calendar
 
 on:
   schedule:
-    # Three daily runs, all UTC (GitHub Actions cron is UTC-only with no
+    # Three ANCHOR runs, all UTC (GitHub Actions cron is UTC-only with no
     # DST awareness).  Times chosen against the gliding season (BST):
     #   05:00 UTC = 06:00 BST  - early-bird view; UK4 series ready
     #   08:00 UTC = 09:00 BST  - after RASP's morning UK12 regen (~06:50 UTC)
     #   10:00 UTC = 11:00 BST  - belt-and-braces in case earlier runs missed
-    # Each run regenerates the full ICS from scratch.  Stale charts (those
-    # served before RASP has refreshed them for the day) are rejected in
-    # rasp_stars.py via Last-Modified, so an early run that catches only
-    # half the days is automatically corrected by the later runs.
+    # Anchors always rebuild unconditionally, so the volatile UK4 "today"
+    # curve picks up RASP's intra-day reruns.
     - cron: "0 5 * * *"
     - cron: "0 8 * * *"
     - cron: "0 10 * * *"
+    # RECHECK runs, hourly across the rest of the working day.  These are
+    # conditional: the "Decide whether a rebuild is needed" step reads
+    # public/build_state.json and skips the build when the previous run
+    # already got all seven days for today.  They exist to shorten the
+    # outage when RASP is down or mid-refresh at an anchor time - the
+    # affected days publish as "no data" placeholders and are replaced
+    # within the hour instead of waiting for the next anchor.
+    - cron: "0 6,7,9,11,12,13,14,15,16,17 * * *"
   workflow_dispatch:   # Allow manual runs from the Actions tab.
   push:
     branches: [main]
@@ -41,35 +47,84 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      rebuilt: ${{ steps.decide.outputs.build }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Decide whether a rebuild is needed
+        id: decide
+        # Anchor runs, manual runs and pushes always rebuild.  Hourly
+        # recheck runs only rebuild if the last run did not get a complete
+        # set of seven days for today - i.e. only when there is a gap to
+        # close.  On a normal day the 05:00 anchor succeeds and every
+        # recheck exits here in a few seconds.
+        env:
+          # MUST match the recheck cron line above character for character:
+          # github.event.schedule reports the expression verbatim.
+          RECHECK_CRON: "0 6,7,9,11,12,13,14,15,16,17 * * *"
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_CRON: ${{ github.event.schedule }}
+          STATE: public/build_state.json
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "schedule" ] || [ "$EVENT_CRON" != "$RECHECK_CRON" ]; then
+            decision=true;  reason="anchor / manual run - rebuilding unconditionally"
+          elif [ ! -f "$STATE" ]; then
+            decision=true;  reason="no $STATE yet - rebuilding"
+          else
+            # '|| echo' so a truncated or hand-edited state file forces a
+            # rebuild rather than failing the run under 'set -e'.
+            run_date=$(python3 -c "import json;print(json.load(open('$STATE')).get('run_date',''))" || echo "unreadable")
+            complete=$(python3 -c "import json;print(json.load(open('$STATE')).get('complete',False))" || echo "False")
+            failed=$(python3 -c "import json;print(json.load(open('$STATE')).get('days_failed','?'))" || echo "?")
+            today=$(date -u +%F)
+            if [ "$run_date" = "$today" ] && [ "$complete" = "True" ]; then
+              decision=false; reason="last run covered $today with all 7 days - nothing to recheck"
+            else
+              decision=true;  reason="last run was for $run_date with $failed day(s) missing - rechecking"
+            fi
+          fi
+          echo "build=$decision" >> "$GITHUB_OUTPUT"
+          echo "$reason"
+          echo "**Rebuild: $decision** - $reason" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Set up Python
+        if: steps.decide.outputs.build == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
+        if: steps.decide.outputs.build == 'true'
         run: pip install -r requirements.txt
 
       - name: Prune previous build artefacts
+        if: steps.decide.outputs.build == 'true'
         # Each run regenerates everything; carrying stale PNGs/CSVs from
         # previous runs would pollute the repo and the deployed Pages site.
-        # Wipe the charts directory and the root ICS each time.
+        # Wipe the charts directory and the root ICS each time.  Note this
+        # is deliberate: a day RASP cannot serve today must NOT inherit an
+        # earlier run's rating.  It is republished as a "no data"
+        # placeholder instead - see rasp_stars.py.  build_state.json is
+        # kept, because the next recheck needs to read it.
         run: |
           rm -rf public/charts
           rm -f  public/cambridge_rasp.ics
 
       - name: Generate calendar
+        if: steps.decide.outputs.build == 'true'
         run: |
           mkdir -p public/charts
           python rasp_stars.py \
             --out-dir ./public/charts \
-            --ics ./public/cambridge_rasp.ics
+            --ics ./public/cambridge_rasp.ics \
+            --state ./public/build_state.json
 
       - name: Add an index page (optional, for browsing)
+        if: steps.decide.outputs.build == 'true'
         run: |
           OWNER="${GITHUB_REPOSITORY%%/*}"
           REPO="${GITHUB_REPOSITORY##*/}"
@@ -89,31 +144,47 @@ jobs:
           <p>Or download the latest ICS:
             <a href="cambridge_rasp.ics">cambridge_rasp.ics</a></p>
           <p>Audit-trail PNG charts are in <a href="charts/">/charts</a>.</p>
-          <p><em>Last refreshed: this file is regenerated daily at 05:00 UTC
-          (06:00 BST / 05:00 GMT) via GitHub Actions.</em></p>
+          <p>Build state (which days RASP served on the last run):
+            <a href="build_state.json">build_state.json</a>.</p>
+          <p><em>Regenerated at 05:00, 08:00 and 10:00 UTC via GitHub
+          Actions, then rechecked hourly to 17:00 UTC until all seven days
+          are available. Days RASP cannot serve appear as "no data"
+          placeholders - never as an out-of-date rating.</em></p>
           </body></html>
           HTML
 
-      - name: Commit refreshed calendar
+      - name: Commit build state
+        if: steps.decide.outputs.build == 'true'
+        # Deliberately NOT the ICS or the chart PNGs - .gitignore excludes
+        # them.  Subscribers are served from the Pages artifact uploaded
+        # below, which is tarred from the working tree and does not care
+        # what git tracks.  Committing a 500 KB base64-laden ICS per
+        # rebuild only bloated history.  What is committed is
+        # build_state.json (the next recheck must be able to read it), the
+        # CSVs and index.html.
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/
           # Only commit if something actually changed.
           if git diff --cached --quiet; then
-            echo "No changes - RASP unchanged since last run."
+            echo "No tracked changes - state identical to last run."
           else
-            git commit -m "Refresh RASP calendar $(date -u +%Y-%m-%dT%H:%MZ)"
+            git commit -m "Refresh RASP build state $(date -u +%Y-%m-%dT%H:%MZ)"
             git push
           fi
 
       - name: Upload as Pages artifact
+        if: steps.decide.outputs.build == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
 
   deploy:
     needs: build
+    # A skipped recheck uploads no artifact, so there is nothing to deploy -
+    # the previous Pages deployment simply stays live.
+    if: needs.build.outputs.rebuilt == 'true'
     runs-on: ubuntu-latest
     permissions:
       pages: write
