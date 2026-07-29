@@ -92,6 +92,64 @@ class StaleChartError(RuntimeError):
     """Raised when RASP serves a chart from a previous day's model run."""
 
 
+class NotAChartError(RuntimeError):
+    """Raised when the response isn't a PNG at all (usually an intercept page)."""
+
+
+def _describe_non_png(data: bytes, status: int, headers, url: str) -> str:
+    """
+    Summarise a non-PNG response so a failure is diagnosable after the fact.
+
+    blip_stars.php returns a PNG for every input tested, including bogus
+    models and nonsense coordinates - it has no HTML error path.  So an
+    HTML body means something in front of RASP answered instead: a WAF,
+    bot-protection interstitial or host error page, typically with a
+    misleading HTTP 200.  Knowing WHICH decides what to do about it, and
+    that information is only available at the moment it happens - hence
+    capturing it here rather than just the first 16 bytes.
+
+    The full body goes to stderr (visible in the Actions log); the short
+    form returned here goes into build_state.json and the calendar
+    placeholder, so it has to stay readable.
+    """
+    text = data.decode("utf-8", "replace")
+    # <title> is usually the most identifying single line on a block page.
+    title = ""
+    lower = text.lower()
+    i = lower.find("<title>")
+    if i != -1:
+        j = lower.find("</title>", i)
+        if j != -1:
+            title = " ".join(text[i + 7:j].split())[:120]
+    # Crude tag strip for a sample of the visible text.
+    stripped, in_tag = [], False
+    for ch in text[:4000]:
+        if ch == "<":
+            in_tag = True
+        elif ch == ">":
+            in_tag = False
+        elif not in_tag:
+            stripped.append(ch)
+    visible = " ".join("".join(stripped).split())[:200]
+
+    print(f"    --- non-PNG response from {url}", file=sys.stderr)
+    print(f"    HTTP {status}, Content-Type "
+          f"{headers.get('Content-Type', '?')}, Server "
+          f"{headers.get('Server', '?')}, {len(data)} bytes", file=sys.stderr)
+    print(f"    title: {title or '(none)'}", file=sys.stderr)
+    print(f"    body:  {text[:1200]}", file=sys.stderr)
+    print("    --- end of non-PNG response", file=sys.stderr)
+
+    bits = [f"HTTP {status}",
+            f"content-type {headers.get('Content-Type', '?')}",
+            f"{len(data)} bytes"]
+    if title:
+        bits.append(f'title "{title}"')
+    if visible:
+        bits.append(f'text "{visible}"')
+    return "not a PNG - " + "; ".join(bits)
+
+
 def fetch_png(model: str, lat: float, lon: float) -> bytes:
     """
     Download one RASP chart PNG.  Rejects stale charts by inspecting the
@@ -110,8 +168,10 @@ def fetch_png(model: str, lat: float, lon: float) -> bytes:
     with urlopen(req, timeout=30) as resp:
         data = resp.read()
         lm_header = resp.headers.get("Last-Modified", "")
+        status = resp.status
+        headers = resp.headers
     if not data.startswith(b"\x89PNG"):
-        raise RuntimeError(f"Expected PNG, got {data[:16]!r} from {url}")
+        raise NotAChartError(_describe_non_png(data, status, headers, url))
     # Compare Last-Modified day (UTC) with today (UTC).  If older than today,
     # the chart is from a previous model run and almost certainly has the
     # wrong calendar date stamped in its title.
@@ -432,25 +492,22 @@ def _build_placeholder_description(f: "DayFailure", location: str,
 
     States plainly that there is no forecast for this day rather than
     implying a zero-star day, and tells the reader a retry is coming.
+
+    Deliberately free of diagnostics.  Why the fetch failed - HTTP status,
+    intercept-page title, parser message - is operational detail that
+    belongs in the Actions log and build_state.json, not in a calendar
+    entry someone reads on their phone.  f.reason is NOT rendered here.
     """
-    if f.kind == "stale":
-        what = ("RASP has not yet regenerated this model for today, so no "
-                "current forecast exists.")
-    elif f.kind == "fetch":
-        what = "The RASP server could not be reached."
-    else:
-        what = "The RASP chart was retrieved but could not be read."
     return "\n".join([
         f"{f.date.strftime('%a %d %b %Y')} ({f.model}) - {location}",
         "",
         "No forecast available for this day.",
-        what,
+        "The RASP forecast could not be retrieved.",
         "",
         "Deliberately left blank rather than showing an out-of-date "
         "rating from an earlier run.",
         retry_note,
         "",
-        f"Detail: {f.reason}",
         f"Last attempt {generated_utc.strftime('%Y-%m-%d %H:%M UTC')}",
     ])
 
@@ -733,6 +790,10 @@ def run(location: str, lat: float, lon: float,
         except StaleChartError as e:
             print(f"  [{date} {model}] STALE: {e}", file=sys.stderr)
             failures.append(DayFailure(date, model, str(e), "stale"))
+            continue
+        except NotAChartError as e:
+            print(f"  [{date} {model}] NOT A CHART: {e}", file=sys.stderr)
+            failures.append(DayFailure(date, model, str(e), "intercepted"))
             continue
         except Exception as e:
             print(f"  [{date} {model}] fetch failed: {e}", file=sys.stderr)
