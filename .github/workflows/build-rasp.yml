@@ -53,11 +53,15 @@ concurrency:
   group: build-rasp
   cancel-in-progress: false
 
-# Opt every action into Node.js 24 ahead of GitHub's 2026-06-02 cut-over.
-# Clears the "Node.js 20 actions are deprecated" warnings.  Safe to remove
-# once that date has passed and the runner default is Node 24.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+# FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 used to live here.  It was a
+# pre-cut-over opt-in; GitHub-hosted runners default to Node 24 as of
+# 2026-06-16, so it no longer does anything and has been removed.  Every
+# action below is now pinned to a major that declares node24 natively,
+# which is what actually silences the deprecation warnings - the env var
+# only forced node20 actions onto the newer runtime, it did not make them
+# node24 actions.  Do NOT reach for ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION
+# to quieten anything: it pins execution back to Node 20 and stops working
+# when Node 20 is removed from the runners in autumn 2026.
 
 jobs:
   build:
@@ -67,7 +71,7 @@ jobs:
       rebuilt: ${{ steps.decide.outputs.build }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Decide whether a rebuild is needed
         id: decide
@@ -129,9 +133,14 @@ jobs:
 
       - name: Set up Python
         if: steps.decide.outputs.build == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          # "3.14" (not "3.14.6") so setup-python resolves the newest
+          # patch release each run - patch bumps are security fixes we
+          # want automatically.  3.12 went security-only (source fixes,
+          # no more binaries) in 2026; 3.14 is in active bugfix support
+          # until October 2030.
+          python-version: "3.14"
           cache: pip
 
       - name: Install dependencies
@@ -213,7 +222,7 @@ jobs:
 
       - name: Upload as Pages artifact
         if: steps.decide.outputs.build == 'true'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: public
 
@@ -232,4 +241,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

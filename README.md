@@ -162,6 +162,16 @@ python3 -m venv .venv
 .venv/bin/python rasp_stars.py --out-dir ./out --ics cambridge_rasp.ics
 ```
 
+CI runs Python 3.14 (the workflow asks for `"3.14"`, so it picks up patch
+releases automatically). Nothing in the code is version-specific — it has been
+run unchanged on 3.11, 3.13 and 3.14 with identical output — but 3.12 went
+security-only in 2026, so track something in active bugfix support.
+
+`requirements.txt` deliberately floats (`numpy>=1.26`, `Pillow>=10.0`): each
+build installs the current releases. That keeps security fixes flowing without
+maintenance, at the cost of no protection against a future Pillow changing PNG
+decoding under the parser. See [Caveats](#caveats).
+
 Optional flags:
 
 ```
@@ -284,6 +294,12 @@ debugging a quiet morning:
   alter the chart colour, axis range, or size, the line-colour constant
   may need updating. The audit-trail PNGs in `/charts` make any drift
   visible.
+- Dependencies float, and there are no tests. The whole program is
+  pixel-archaeology — an exact RGB match on `(238,130,238)`, tick detection
+  by counting dark pixels — so a future Pillow that changes PNG decoding
+  could shift star ratings with nothing failing. A committed reference PNG
+  plus its expected half-hour readings, asserted in CI, would close both
+  this and the chart-template risk above.
 - The Paul Scorer "stars" formula is experimental (the chart title says so) —
   a 3★ day won't always fly better than a 2★ day, but it's a good first-pass
   filter against washouts.
