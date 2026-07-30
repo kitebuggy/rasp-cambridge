@@ -38,9 +38,8 @@ import datetime as dt
 import io
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -243,7 +242,6 @@ def parse_stars_png(data: bytes) -> list[tuple[str, float]]:
             f"Implausible x-tick count {len(x_ticks)} "
             f"(expected {N_SLOTS_MIN}..{N_SLOTS_MAX})"
         )
-    n_slots = len(x_ticks)
     if len(y_ticks) < 2:
         raise RuntimeError(f"Could not detect y-axis ticks ({y_ticks})")
     # y_ticks[0] => 6 stars, y_ticks[-1] => 0 stars (top-to-bottom)
@@ -669,7 +667,7 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str,
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
         f"X-WR-CALNAME:RASP Stars - {location}",
-        "X-WR-CALDESC:Daily RASP star-rating forecast for Cambridge",
+        f"X-WR-CALDESC:Daily RASP star-rating forecast for {location}",
     ]
     for s in summaries:
         # Calendar title: just "<fly_score> ★" on the 0-5 scale.

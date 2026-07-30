@@ -44,9 +44,13 @@ on:
       - "requirements.txt"
       - ".github/workflows/build-rasp.yml"
 
-# Permission needed to commit the regenerated ICS back to the repo.
+# Least privilege: default everything to read-only here and grant the extra
+# scopes per job.  Only `build` needs contents:write (it commits
+# build_state.json); `deploy` gets pages/id-token and nothing else.  A
+# workflow-level contents:write would hand write access to the repo to
+# every job that ever gets added, including ones that only publish.
 permissions:
-  contents: write
+  contents: read
 
 # Avoid two scheduled runs racing if one is slow.
 concurrency:
@@ -63,15 +67,23 @@ concurrency:
 # to quieten anything: it pins execution back to Node 20 and stops working
 # when Node 20 is removed from the runners in autumn 2026.
 
+# Every action is pinned to a full commit SHA, not a tag.  Tags are
+# mutable: `@v7` can be force-moved to any commit by whoever controls the
+# repo, and these actions run with this workflow's token.  The trailing
+# comment records the human-readable version, and .github/dependabot.yml
+# raises a PR when a pin falls behind - without which SHA pinning just
+# means quietly running stale code forever.
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: write        # commits public/build_state.json back to main
     outputs:
       rebuilt: ${{ steps.decide.outputs.build }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Decide whether a rebuild is needed
         id: decide
@@ -133,7 +145,7 @@ jobs:
 
       - name: Set up Python
         if: steps.decide.outputs.build == 'true'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           # "3.14" (not "3.14.6") so setup-python resolves the newest
           # patch release each run - patch bumps are security fixes we
@@ -145,7 +157,19 @@ jobs:
 
       - name: Install dependencies
         if: steps.decide.outputs.build == 'true'
-        run: pip install -r requirements.txt
+        # The pip bundled with setup-python's interpreter lags PyPI by a
+        # few weeks, so upgrade it before installing anything.  Mostly this
+        # just silences pip's own "a new release is available" notice, but
+        # 26.1.2 - the version shipped at the time of writing - is affected
+        # by CVE-2026-13346, where pip unquoted %-escapes twice and a
+        # crafted link could steer a download to an arbitrary path.
+        # Exploiting it needs a malicious or compromised index, so the real
+        # risk to this workflow (two well-known wheels from PyPI over TLS)
+        # is slight - but the fix costs a few seconds a run.  Harmless to
+        # leave in once the runner image catches up: it becomes a no-op.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Prune previous build artefacts
         if: steps.decide.outputs.build == 'true'
@@ -222,7 +246,7 @@ jobs:
 
       - name: Upload as Pages artifact
         if: steps.decide.outputs.build == 'true'
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: public
 
@@ -232,6 +256,7 @@ jobs:
     # the previous Pages deployment simply stays live.
     if: needs.build.outputs.rebuilt == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pages: write
       id-token: write
@@ -241,4 +266,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

@@ -1,0 +1,23 @@
+version: 2
+
+updates:
+  # Keep the SHA-pinned actions in .github/workflows current.  Without this,
+  # pinning to a commit means running whatever was current on the day it was
+  # pinned, forever - which is how the Node 20 deprecation went unnoticed
+  # until it turned up in a run log.  Dependabot understands SHA pins: it
+  # rewrites both the SHA and the trailing "# vX.Y.Z" comment.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+
+  # Deliberately NO pip entry.  requirements.txt floats on purpose
+  # (numpy>=1.26, Pillow>=10.0) so every build takes current releases;
+  # Dependabot would only raise those floors and generate noise. If the
+  # policy ever changes to exact pins, add a "pip" ecosystem here.

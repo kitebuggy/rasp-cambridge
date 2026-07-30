@@ -276,6 +276,19 @@ If a firing ever becomes genuinely load-bearing, don't lean harder on GitHub's
 scheduler — trigger `workflow_dispatch` from an external scheduler via the
 API, which is not subject to the same queue.
 
+### Action pinning
+
+Actions are pinned to full commit SHAs, with the version in a trailing
+comment. Tags are mutable — `@v7` can be force-moved to any commit by whoever
+controls that repo, and these actions execute with this workflow's token and
+`contents: write`. `.github/dependabot.yml` raises a weekly PR when a pin falls
+behind; without it, SHA pinning just means running whatever was current on the
+day you pinned, forever.
+
+Permissions are scoped per job rather than workflow-wide: only `build` gets
+`contents: write` (it commits `build_state.json`), and `deploy` gets
+`pages`/`id-token` and nothing else.
+
 Two other things silently stop scheduled workflows, worth knowing before
 debugging a quiet morning:
 
