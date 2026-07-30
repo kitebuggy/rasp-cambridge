@@ -78,11 +78,14 @@ N_SLOTS_MAX = 32   # leaves headroom if the chart ever extends to 2200
 # The stars curve is drawn as solid "violet" (238,130,238) PNG pixels.
 LINE_RGB = (238, 130, 238)
 
-# Shown in placeholder calendar entries.  Kept in one place so it stays in
-# step with the cron schedule in .github/workflows/build-rasp.yml.
-RETRY_NOTE_DEFAULT = ("The build retries hourly, 05:00-17:00 UTC, and this "
-                      "entry is replaced automatically as soon as the "
-                      "forecast is published.")
+# Shown in placeholder calendar entries.  Deliberately vague about exact
+# times: GitHub delays and sometimes drops scheduled runs, so quoting a
+# precise timetable to the reader would be a promise the scheduler doesn't
+# keep - and would need editing every time the cron in
+# .github/workflows/build-rasp.yml moves.
+RETRY_NOTE_DEFAULT = ("The build retries roughly hourly through the day, "
+                      "and this entry is replaced automatically as soon as "
+                      "the forecast is available again.")
 
 
 # -----------------------------------------------------------------------------

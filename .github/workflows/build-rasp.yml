@@ -2,24 +2,40 @@ name: Build RASP Cambridge calendar
 
 on:
   schedule:
-    # Three ANCHOR runs, all UTC (GitHub Actions cron is UTC-only with no
-    # DST awareness).  Times chosen against the gliding season (BST):
-    #   05:00 UTC = 06:00 BST  - early-bird view; UK4 series ready
-    #   08:00 UTC = 09:00 BST  - after RASP's morning UK12 regen (~06:50 UTC)
-    #   10:00 UTC = 11:00 BST  - belt-and-braces in case earlier runs missed
+    # NOTE ON THE MINUTE: everything fires at :23, not :00.  GitHub queues
+    # scheduled runs on shared infrastructure, delays them under load, and
+    # DROPS them outright when load is high enough - and the top of the
+    # hour is the worst window, because that is when most of the world's
+    # cron entries fire.  Measured on 2026-07-29 with every cron at :00:
+    # delays of 1, 16, 26, 49 and 51 minutes, and 3 of 8 slots between
+    # 10:00 and 17:00 UTC never fired at all.  An unpopular minute is the
+    # single cheapest mitigation.  :23 also avoids the :00/:15/:30/:45
+    # quarter-hours and multiples of 5 that */5-style schedules cluster on.
+    #
+    # Three ANCHOR runs - each naming a SINGLE hour, which is how the
+    # decide step below tells them apart from the recheck line.  All UTC
+    # (GitHub Actions cron is UTC-only with no DST awareness).  Times
+    # chosen against the gliding season (BST):
+    #   05:23 UTC = 06:23 BST  - early-bird view; UK4 series ready
+    #   08:23 UTC = 09:23 BST  - after RASP's morning UK12 regen (~06:50 UTC)
+    #   10:23 UTC = 11:23 BST  - belt-and-braces in case earlier runs missed
     # Anchors always rebuild unconditionally, so the volatile UK4 "today"
     # curve picks up RASP's intra-day reruns.
-    - cron: "0 5 * * *"
-    - cron: "0 8 * * *"
-    - cron: "0 10 * * *"
-    # RECHECK runs, hourly across the rest of the working day.  These are
+    - cron: "23 5 * * *"
+    - cron: "23 8 * * *"
+    - cron: "23 10 * * *"
+    # RECHECK runs, hourly across the rest of the working day - one cron
+    # naming MANY hours, which is what marks them as rechecks.  These are
     # conditional: the "Decide whether a rebuild is needed" step reads
     # public/build_state.json and skips the build when the previous run
     # already got all seven days for today.  They exist to shorten the
     # outage when RASP is down or mid-refresh at an anchor time - the
     # affected days publish as "no data" placeholders and are replaced
-    # within the hour instead of waiting for the next anchor.
-    - cron: "0 6,7,9,11,12,13,14,15,16,17 * * *"
+    # within the hour instead of waiting for the next anchor.  Because
+    # GitHub drops scheduled runs, treat each of these as best-effort: the
+    # redundancy across ten slots is what makes recovery reliable, not any
+    # single one firing.
+    - cron: "23 6,7,9,11,12,13,14,15,16,17 * * *"
   workflow_dispatch:   # Allow manual runs from the Actions tab.
   push:
     branches: [main]
@@ -55,22 +71,43 @@ jobs:
 
       - name: Decide whether a rebuild is needed
         id: decide
-        # Anchor runs, manual runs and pushes always rebuild.  Hourly
-        # recheck runs only rebuild if the last run did not get a complete
-        # set of seven days for today - i.e. only when there is a gap to
-        # close.  On a normal day the 05:00 anchor succeeds and every
-        # recheck exits here in a few seconds.
+        # Anchor runs, manual runs and pushes always rebuild.  Recheck runs
+        # only rebuild if the last run did not get a complete set of seven
+        # days for today - i.e. only when there is a gap to close.  On a
+        # normal day the 05:23 anchor succeeds and every recheck exits here
+        # in a few seconds.
+        #
+        # Which kind of run this is comes from the triggering cron itself
+        # (github.event.schedule reports it verbatim), so the schedule is
+        # stated in exactly ONE place - the `schedule:` list above.  The
+        # invariant that makes this work:
+        #
+        #     an ANCHOR cron names a single hour   -> "23 5 * * *"
+        #     the RECHECK cron names several       -> "23 6,7,9,... * * *"
+        #
+        # Keep it that way when editing the schedule.  A previous version
+        # kept a second copy of the recheck expression here and compared
+        # the two strings; the copies only had to drift by one character
+        # for every recheck to silently become an unconditional rebuild -
+        # 13 full rebuilds a day instead of 3, with nothing failing to
+        # show it.  Deriving it removes that failure mode entirely.
         env:
-          # MUST match the recheck cron line above character for character:
-          # github.event.schedule reports the expression verbatim.
-          RECHECK_CRON: "0 6,7,9,11,12,13,14,15,16,17 * * *"
           EVENT_NAME: ${{ github.event_name }}
           EVENT_CRON: ${{ github.event.schedule }}
           STATE: public/build_state.json
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" != "schedule" ] || [ "$EVENT_CRON" != "$RECHECK_CRON" ]; then
-            decision=true;  reason="anchor / manual run - rebuilding unconditionally"
+          if [ "$EVENT_NAME" != "schedule" ]; then
+            kind="$EVENT_NAME"
+          else
+            # Field 2 of the cron expression is the hour list.
+            case "$(printf '%s' "$EVENT_CRON" | awk '{print $2}')" in
+              *,*|*-*|*/*) kind=recheck ;;
+              *)           kind=anchor  ;;
+            esac
+          fi
+          if [ "$kind" != "recheck" ]; then
+            decision=true;  reason="$kind run - rebuilding unconditionally"
           elif [ ! -f "$STATE" ]; then
             decision=true;  reason="no $STATE yet - rebuilding"
           else
@@ -146,10 +183,10 @@ jobs:
           <p>Audit-trail PNG charts are in <a href="charts/">/charts</a>.</p>
           <p>Build state (which days RASP served on the last run):
             <a href="build_state.json">build_state.json</a>.</p>
-          <p><em>Regenerated at 05:00, 08:00 and 10:00 UTC via GitHub
-          Actions, then rechecked hourly to 17:00 UTC until all seven days
-          are available. Days RASP cannot serve appear as "no data"
-          placeholders - never as an out-of-date rating.</em></p>
+          <p><em>Regenerated at 05:23, 08:23 and 10:23 UTC via GitHub
+          Actions, then rechecked hourly at :23 past until 17:23 UTC, or
+          until all seven days are available. Days RASP cannot serve appear
+          as "no data" placeholders - never as an out-of-date rating.</em></p>
           </body></html>
           HTML
 

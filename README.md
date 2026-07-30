@@ -64,11 +64,15 @@ always renders, and the audit-trail PNGs are linkable from the repo's
    `https://<you>.github.io/<repo>/cambridge_rasp.ics`. Subscribe to it from
    your calendar app of choice as above.
 
-The workflow then rebuilds at 05:00, 08:00 and 10:00 UTC (catching RASP's
-morning model runs) and redeploys the calendar to Pages. It also
-rechecks hourly between 06:00 and 17:00 UTC, but only rebuilds when the
-previous run came back short of a full seven days — see
+The workflow then rebuilds at 05:23, 08:23 and 10:23 UTC (catching RASP's
+morning model runs) and redeploys the calendar to Pages. It also rechecks
+hourly at :23 past, 06:23 to 17:23 UTC, but only rebuilds when the previous
+run came back short of a full seven days — see
 [When RASP is unavailable](#when-rasp-is-unavailable).
+
+The odd minute is deliberate: GitHub delays scheduled runs under load and
+drops some entirely, and the top of the hour is the worst window — see
+[Scheduling reliability](#scheduling-reliability).
 
 ## What the "fly score" means
 
@@ -228,6 +232,48 @@ redeploying. So the extra runs cost almost nothing on a normal day and only do
 real work when there's a gap to close. The 05:00 / 08:00 / 10:00 runs always
 rebuild regardless, so the volatile UK4 "today" curve still picks up RASP's
 intra-day reruns.
+
+## Scheduling reliability
+
+GitHub Actions cron is best-effort, not a guarantee. Scheduled runs are queued
+on shared infrastructure, delayed under load, and **dropped entirely** when
+load is high enough — and the top of every hour is the worst window, because
+that is when most of the world's cron entries fire.
+
+Measured here on 2026-07-29, with every cron still at `:00`:
+
+| Scheduled (UTC) | Actually ran | Delay |
+|-----------------|--------------|-------|
+| 10:00 | 10:26 | +26 min |
+| 11:00 | 11:51 | +51 min |
+| 12:00 | — | dropped |
+| 13:00 | 13:01 | +1 min |
+| 14:00 | — | dropped |
+| 15:00 | 15:49 | +49 min |
+| 16:00 | — | dropped |
+| 17:00 | 17:16 | +16 min |
+
+Three of eight slots never fired. Everything therefore runs at **:23** now —
+an unpopular minute, avoiding both the quarter-hours and the multiples of five
+that `*/5`-style schedules cluster on.
+
+Design-wise the schedule is treated as lossy: no single firing matters,
+because any run that finds a gap in `build_state.json` closes it, and the ten
+recheck slots give ten chances to do so. A dropped 05:23 just means the
+calendar refreshes at 06:23 or 07:23 instead.
+
+If a firing ever becomes genuinely load-bearing, don't lean harder on GitHub's
+scheduler — trigger `workflow_dispatch` from an external scheduler via the
+API, which is not subject to the same queue.
+
+Two other things silently stop scheduled workflows, worth knowing before
+debugging a quiet morning:
+
+- **60 days of repository inactivity** disables them automatically (a banner
+  appears in the Actions tab). Not a risk while the build commits
+  `build_state.json` on every rebuild, which is one reason it stays tracked.
+- Schedules are only read from the **default branch**, so a cron change on a
+  side branch does nothing until it lands on `main`.
 
 ## Caveats
 
