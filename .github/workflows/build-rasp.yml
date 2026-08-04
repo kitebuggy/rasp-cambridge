@@ -2,40 +2,41 @@ name: Build RASP Cambridge calendar
 
 on:
   schedule:
-    # NOTE ON THE MINUTE: everything fires at :23, not :00.  GitHub queues
-    # scheduled runs on shared infrastructure, delays them under load, and
-    # DROPS them outright when load is high enough - and the top of the
-    # hour is the worst window, because that is when most of the world's
-    # cron entries fire.  Measured on 2026-07-29 with every cron at :00:
-    # delays of 1, 16, 26, 49 and 51 minutes, and 3 of 8 slots between
-    # 10:00 and 17:00 UTC never fired at all.  An unpopular minute is the
-    # single cheapest mitigation.  :23 also avoids the :00/:15/:30/:45
-    # quarter-hours and multiples of 5 that */5-style schedules cluster on.
+    # ONE cron, hourly through the useful part of the day.  All UTC:
+    # GitHub Actions cron is UTC-only with no DST awareness, and RASP's
+    # own regen is UTC too, so nothing here needs a DST adjustment.  The
+    # local times drift by an hour at the clock change and that is fine.
     #
-    # Three ANCHOR runs - each naming a SINGLE hour, which is how the
-    # decide step below tells them apart from the recheck line.  All UTC
-    # (GitHub Actions cron is UTC-only with no DST awareness).  Times
-    # chosen against the gliding season (BST):
-    #   05:23 UTC = 06:23 BST  - early-bird view; UK4 series ready
-    #   08:23 UTC = 09:23 BST  - after RASP's morning UK12 regen (~06:50 UTC)
-    #   10:23 UTC = 11:23 BST  - belt-and-braces in case earlier runs missed
-    # Anchors always rebuild unconditionally, so the volatile UK4 "today"
-    # curve picks up RASP's intra-day reruns.
-    - cron: "23 5 * * *"
-    - cron: "23 8 * * *"
-    - cron: "23 10 * * *"
-    # RECHECK runs, hourly across the rest of the working day - one cron
-    # naming MANY hours, which is what marks them as rechecks.  These are
-    # conditional: the "Decide whether a rebuild is needed" step reads
-    # public/build_state.json and skips the build when the previous run
-    # already got all seven days for today.  They exist to shorten the
-    # outage when RASP is down or mid-refresh at an anchor time - the
-    # affected days publish as "no data" placeholders and are replaced
-    # within the hour instead of waiting for the next anchor.  Because
-    # GitHub drops scheduled runs, treat each of these as best-effort: the
-    # redundancy across ten slots is what makes recovery reliable, not any
-    # single one firing.
-    - cron: "23 6,7,9,11,12,13,14,15,16,17 * * *"
+    # NOTE ON THE MINUTE: :13, not :00.  GitHub queues scheduled runs on
+    # shared infrastructure, dispatches them late under load, and DROPS
+    # them outright when load is high enough.  Measured 2026-07-29 with
+    # every cron at :00 - delays of 1, 16, 26, 49 and 51 minutes, and 3
+    # of 8 slots never fired.  Moved to :23 on 2026-07-30.  Re-measured
+    # over 2026-07-31..08-02: no better, and worse at the margins - one
+    # dispatch ran +74 min late, and the 05:23 and 06:23 slots had a
+    # 100% miss rate across all three days.  :13 is the next attempt; it
+    # still avoids :00, the quarter-hours, and the multiples of 5 that
+    # */5-style schedules cluster on.
+    #
+    # Do NOT treat the minute as the fix.  The same measurement showed
+    # the delay pattern repeating to within +/-3 minutes on consecutive
+    # days, so it tracks global cron load, not jitter - an unpopular
+    # minute only shaves the edge off.  What makes this reliable is the
+    # max-age rule in the decide step: every slot is another chance to
+    # notice the published data is stale, so no single firing is
+    # load-bearing and a dropped slot costs at most one hour.
+    #
+    # There is deliberately no anchor/recheck split any more.  It used to
+    # be three unconditional "anchor" crons plus one conditional hourly
+    # line, with the decide step telling them apart by parsing
+    # github.event.schedule.  Two problems, both now gone: a dropped
+    # anchor was uncompensated (the next recheck saw complete state and
+    # skipped, so the volatile UK4 "today" curve stayed stale until the
+    # following anchor), and the classification was a silent trap for
+    # anyone editing the schedule - merging the anchors onto one line
+    # would have reclassified them.  Max-age subsumes both jobs and needs
+    # no classification at all, so the schedule is now safe to edit.
+    - cron: "13 5-17 * * *"
   workflow_dispatch:   # Allow manual runs from the Actions tab.
   push:
     branches: [main]
@@ -87,56 +88,66 @@ jobs:
 
       - name: Decide whether a rebuild is needed
         id: decide
-        # Anchor runs, manual runs and pushes always rebuild.  Recheck runs
-        # only rebuild if the last run did not get a complete set of seven
-        # days for today - i.e. only when there is a gap to close.  On a
-        # normal day the 05:23 anchor succeeds and every recheck exits here
-        # in a few seconds.
+        # Rebuild if ANY of these holds:
         #
-        # Which kind of run this is comes from the triggering cron itself
-        # (github.event.schedule reports it verbatim), so the schedule is
-        # stated in exactly ONE place - the `schedule:` list above.  The
-        # invariant that makes this work:
+        #     this is not a scheduled run (push or manual)
+        #     there is no state file yet
+        #     the state file is for a different UTC day
+        #     the last run did not get all seven days
+        #     the data we already have is older than MAX_AGE_MIN
         #
-        #     an ANCHOR cron names a single hour   -> "23 5 * * *"
-        #     the RECHECK cron names several       -> "23 6,7,9,... * * *"
+        # Otherwise exit here in a couple of seconds.  On a normal day
+        # that means four builds and nine cheap no-ops.
         #
-        # Keep it that way when editing the schedule.  A previous version
-        # kept a second copy of the recheck expression here and compared
-        # the two strings; the copies only had to drift by one character
-        # for every recheck to silently become an unconditional rebuild -
-        # 13 full rebuilds a day instead of 3, with nothing failing to
-        # show it.  Deriving it removes that failure mode entirely.
+        # The rule deliberately does NOT look at which cron woke it.  An
+        # earlier version split the schedule into unconditional "anchor"
+        # crons and conditional "recheck" crons and told them apart by
+        # parsing github.event.schedule - see git history.  It worked,
+        # but a dropped anchor was uncompensated: the next recheck saw
+        # complete state, skipped, and the volatile UK4 "today" curve
+        # stayed stale until the following anchor.  Worse, the whole
+        # thing turned on an unwritten invariant about how the cron
+        # expressions were formatted, so editing the schedule could
+        # silently invert the behaviour.
+        #
+        # Age subsumes both jobs.  Staleness is the thing we actually
+        # care about, so measure it directly rather than inferring it
+        # from the timetable - which GitHub does not honour anyway.
         env:
           EVENT_NAME: ${{ github.event_name }}
-          EVENT_CRON: ${{ github.event.schedule }}
           STATE: public/build_state.json
+          # MAX_AGE_MIN is the entire scheduling policy, in one number.
+          # At 180 the day settles into roughly four builds: the first
+          # slot that survives after midnight UTC rebuilds (state is
+          # yesterday's), then one about every three hours as the age
+          # rule trips.  Lower it to track the volatile UK4 "today"
+          # curve more closely; raise it to cut request volume against
+          # RASP.  Expressed in MINUTES so the log line reads usefully
+          # against the observed dispatch delays, which reach +75 min.
+          MAX_AGE_MIN: "180"
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" != "schedule" ]; then
-            kind="$EVENT_NAME"
-          else
-            # Field 2 of the cron expression is the hour list.
-            case "$(printf '%s' "$EVENT_CRON" | awk '{print $2}')" in
-              *,*|*-*|*/*) kind=recheck ;;
-              *)           kind=anchor  ;;
-            esac
-          fi
-          if [ "$kind" != "recheck" ]; then
-            decision=true;  reason="$kind run - rebuilding unconditionally"
+            decision=true;  reason="$EVENT_NAME run - rebuilding unconditionally"
           elif [ ! -f "$STATE" ]; then
             decision=true;  reason="no $STATE yet - rebuilding"
           else
-            # '|| echo' so a truncated or hand-edited state file forces a
-            # rebuild rather than failing the run under 'set -e'.
+            # '|| echo' on each so a truncated or hand-edited state file
+            # forces a rebuild rather than failing the run under 'set -e'.
             run_date=$(python3 -c "import json;print(json.load(open('$STATE')).get('run_date',''))" || echo "unreadable")
             complete=$(python3 -c "import json;print(json.load(open('$STATE')).get('complete',False))" || echo "False")
             failed=$(python3 -c "import json;print(json.load(open('$STATE')).get('days_failed','?'))" || echo "?")
+            # Missing/!unparseable generated_utc => 99999 => always stale.
+            age_min=$(python3 -c "import json,datetime as dt;g=json.load(open('$STATE'))['generated_utc'].replace('Z','+00:00');print(int((dt.datetime.now(dt.timezone.utc)-dt.datetime.fromisoformat(g)).total_seconds()//60))" || echo 99999)
             today=$(date -u +%F)
-            if [ "$run_date" = "$today" ] && [ "$complete" = "True" ]; then
-              decision=false; reason="last run covered $today with all 7 days - nothing to recheck"
+            if [ "$run_date" != "$today" ]; then
+              decision=true;  reason="state is for $run_date, today is $today - rebuilding"
+            elif [ "$complete" != "True" ]; then
+              decision=true;  reason="state for $today has $failed day(s) missing - rebuilding"
+            elif [ "$age_min" -ge "$MAX_AGE_MIN" ]; then
+              decision=true;  reason="data is ${age_min}m old, max ${MAX_AGE_MIN}m - refreshing"
             else
-              decision=true;  reason="last run was for $run_date with $failed day(s) missing - rechecking"
+              decision=false; reason="data is ${age_min}m old and complete for $today - nothing to do"
             fi
           fi
           echo "build=$decision" >> "$GITHUB_OUTPUT"
@@ -179,7 +190,7 @@ jobs:
         # is deliberate: a day RASP cannot serve today must NOT inherit an
         # earlier run's rating.  It is republished as a "no data"
         # placeholder instead - see rasp_stars.py.  build_state.json is
-        # kept, because the next recheck needs to read it.
+        # kept, because the next run needs to read it.
         run: |
           rm -rf public/charts
           rm -f  public/cambridge_rasp.ics
@@ -216,10 +227,10 @@ jobs:
           <p>Audit-trail PNG charts are in <a href="charts/">/charts</a>.</p>
           <p>Build state (which days RASP served on the last run):
             <a href="build_state.json">build_state.json</a>.</p>
-          <p><em>Regenerated at 05:23, 08:23 and 10:23 UTC via GitHub
-          Actions, then rechecked hourly at :23 past until 17:23 UTC, or
-          until all seven days are available. Days RASP cannot serve appear
-          as "no data" placeholders - never as an out-of-date rating.</em></p>
+          <p><em>Rebuilt through the day via GitHub Actions - refreshed
+          every few hours, and retried sooner while any day is missing.
+          Days RASP cannot serve appear as "no data" placeholders - never
+          as an out-of-date rating.</em></p>
           </body></html>
           HTML
 
@@ -230,7 +241,7 @@ jobs:
         # below, which is tarred from the working tree and does not care
         # what git tracks.  Committing a 500 KB base64-laden ICS per
         # rebuild only bloated history.  What is committed is
-        # build_state.json (the next recheck must be able to read it), the
+        # build_state.json (the next run must be able to read it), the
         # CSVs and index.html.
         run: |
           git config user.name  "github-actions[bot]"
@@ -252,7 +263,7 @@ jobs:
 
   deploy:
     needs: build
-    # A skipped recheck uploads no artifact, so there is nothing to deploy -
+    # A skipped run uploads no artifact, so there is nothing to deploy -
     # the previous Pages deployment simply stays live.
     if: needs.build.outputs.rebuilt == 'true'
     runs-on: ubuntu-latest
