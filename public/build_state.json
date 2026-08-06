@@ -1,42 +1,42 @@
 {
-  "generated_utc": "2026-08-05T17:52:19Z",
-  "run_date": "2026-08-05",
+  "generated_utc": "2026-08-06T07:48:15Z",
+  "run_date": "2026-08-06",
   "complete": true,
   "days_ok": 7,
   "days_failed": 0,
   "days": [
     {
-      "date": "2026-08-05",
+      "date": "2026-08-06",
       "model": "UK4",
       "status": "ok"
     },
     {
-      "date": "2026-08-06",
+      "date": "2026-08-07",
       "model": "UK4+1",
       "status": "ok"
     },
     {
-      "date": "2026-08-07",
+      "date": "2026-08-08",
       "model": "UK4+2",
       "status": "ok"
     },
     {
-      "date": "2026-08-08",
+      "date": "2026-08-09",
       "model": "UK12+3",
       "status": "ok"
     },
     {
-      "date": "2026-08-09",
+      "date": "2026-08-10",
       "model": "UK12+4",
       "status": "ok"
     },
     {
-      "date": "2026-08-10",
+      "date": "2026-08-11",
       "model": "UK12+5",
       "status": "ok"
     },
     {
-      "date": "2026-08-11",
+      "date": "2026-08-12",
       "model": "UK12+6",
       "status": "ok"
     }
