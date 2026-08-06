@@ -1,44 +1,51 @@
 {
-  "generated_utc": "2026-08-06T12:02:59Z",
+  "generated_utc": "2026-08-06T14:59:23Z",
   "run_date": "2026-08-06",
-  "complete": true,
-  "days_ok": 7,
-  "days_failed": 0,
+  "complete": false,
+  "days_ok": 0,
+  "days_failed": 7,
   "days": [
     {
       "date": "2026-08-06",
       "model": "UK4",
-      "status": "ok"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 12026 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-08-07",
       "model": "UK4+1",
-      "status": "ok"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11983 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-08-08",
       "model": "UK4+2",
-      "status": "ok"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11983 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-08-09",
       "model": "UK12+3",
-      "status": "ok"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11943 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-08-10",
       "model": "UK12+4",
-      "status": "ok"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11943 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-08-11",
       "model": "UK12+5",
-      "status": "ok"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11980 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-08-12",
       "model": "UK12+6",
-      "status": "ok"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11980 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     }
   ]
 }
