@@ -2,21 +2,29 @@ name: Build RASP Cambridge calendar
 
 on:
   schedule:
-    # ONE cron, hourly through the useful part of the day.  All UTC:
-    # GitHub Actions cron is UTC-only with no DST awareness, and RASP's
-    # own regen is UTC too, so nothing here needs a DST adjustment.  The
-    # local times drift by an hour at the clock change and that is fine.
+    # ONE cron, hourly, round the clock.  All UTC: GitHub Actions cron
+    # is UTC-only with no DST awareness, and RASP's own regen is UTC too,
+    # so nothing here needs a DST adjustment.  The local times drift by
+    # an hour at the clock change and that is fine.
     #
-    # NOTE ON THE MINUTE: :13, not :00.  GitHub queues scheduled runs on
+    # It ran 05-17 UTC until 2026-08-06.  Widened to 24h because the
+    # 05:xx and 06:xx slots were dropped every single day for six days,
+    # so the early-bird build Jason actually wants never happened.  More
+    # slots in the pre-dawn window is the only cheap way to get a chance
+    # at one.  Overnight slots that find nothing to do cost ~10 seconds.
+    #
+    # NOTE ON THE MINUTE: :45, not :00.  GitHub queues scheduled runs on
     # shared infrastructure, dispatches them late under load, and DROPS
-    # them outright when load is high enough.  Measured 2026-07-29 with
-    # every cron at :00 - delays of 1, 16, 26, 49 and 51 minutes, and 3
-    # of 8 slots never fired.  Moved to :23 on 2026-07-30.  Re-measured
-    # over 2026-07-31..08-02: no better, and worse at the margins - one
-    # dispatch ran +74 min late, and the 05:23 and 06:23 slots had a
-    # 100% miss rate across all three days.  :13 is the next attempt; it
-    # still avoids :00, the quarter-hours, and the multiples of 5 that
-    # */5-style schedules cluster on.
+    # them outright when load is high enough.  History: :00 until
+    # 2026-07-30 (delays of 1, 16, 26, 49, 51 min; 3 of 8 slots never
+    # fired), then :23, then :13, now :45 - chosen 2026-08-06 on the
+    # theory that the contention window sits around the top of the hour
+    # and the far side of it is the cheapest place to be.
+    #
+    # Caveat, recorded so nobody re-litigates it: :45 IS one of the
+    # quarter-hours that the earlier reasoning tried to avoid, and none
+    # of the three previous minutes measurably beat the others.  This is
+    # a cheap experiment, not a fix - see the paragraph below.
     #
     # Do NOT treat the minute as the fix.  The same measurement showed
     # the delay pattern repeating to within +/-3 minutes on consecutive
@@ -24,7 +32,12 @@ on:
     # minute only shaves the edge off.  What makes this reliable is the
     # max-age rule in the decide step: every slot is another chance to
     # notice the published data is stale, so no single firing is
-    # load-bearing and a dropped slot costs at most one hour.
+    # load-bearing.
+    #
+    # Measured delivery on this schedule, 2026-08-04..06: about 5 of 13
+    # slots arrived per day, spaced 136-180 min apart - NOT hourly.  Size
+    # MAX_AGE_MIN below that minimum gap or it silently skips alternate
+    # runs; see the note on it below.
     #
     # There is deliberately no anchor/recheck split any more.  It used to
     # be three unconditional "anchor" crons plus one conditional hourly
@@ -36,7 +49,7 @@ on:
     # anyone editing the schedule - merging the anchors onto one line
     # would have reclassified them.  Max-age subsumes both jobs and needs
     # no classification at all, so the schedule is now safe to edit.
-    - cron: "13 5-17 * * *"
+    - cron: "45 * * * *"
   workflow_dispatch:   # Allow manual runs from the Actions tab.
   push:
     branches: [main]
@@ -117,14 +130,23 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           STATE: public/build_state.json
           # MAX_AGE_MIN is the entire scheduling policy, in one number.
-          # At 180 the day settles into roughly four builds: the first
-          # slot that survives after midnight UTC rebuilds (state is
-          # yesterday's), then one about every three hours as the age
-          # rule trips.  Lower it to track the volatile UK4 "today"
-          # curve more closely; raise it to cut request volume against
-          # RASP.  Expressed in MINUTES so the log line reads usefully
-          # against the observed dispatch delays, which reach +75 min.
-          MAX_AGE_MIN: "180"
+          # It is a FLOOR, not an interval: the real refresh period is
+          # this value plus however long until the next slot actually
+          # arrives, which measured 136-180 min over 2026-08-04..06.
+          #
+          # Keep it BELOW that minimum gap.  It was 180 from 2026-08-03
+          # to 08-06 and that was the bug: sitting just above the gap, it
+          # skipped alternate surviving runs, so a nominal 3-hour policy
+          # refreshed every ~5 hours.  On 2026-08-06 the 10:47 run missed
+          # the cut by about a minute.
+          #
+          # At 120 every surviving run rebuilds - roughly 5 builds a day,
+          # ~35 chart requests against RASP.  Raise it to cut that load
+          # (240 gives ~3 builds: morning, midday, evening), but note it
+          # only governs the happy path: when RASP is intercepted,
+          # complete=false short-circuits the age check and every run
+          # retries regardless.
+          MAX_AGE_MIN: "120"
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" != "schedule" ]; then

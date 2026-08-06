@@ -64,11 +64,14 @@ always renders, and the audit-trail PNGs are linkable from the repo's
    `https://<you>.github.io/<repo>/cambridge_rasp.ics`. Subscribe to it from
    your calendar app of choice as above.
 
-The workflow then rebuilds at 05:23, 08:23 and 10:23 UTC (catching RASP's
-morning model runs) and redeploys the calendar to Pages. It also rechecks
-hourly at :23 past, 06:23 to 17:23 UTC, but only rebuilds when the previous
-run came back short of a full seven days — see
-[When RASP is unavailable](#when-rasp-is-unavailable).
+The workflow then runs hourly, round the clock. Each run first reads
+`public/build_state.json` and only rebuilds (and redeploys to Pages) when
+the published data is missing days, is from a previous UTC day, or is older
+than the max-age floor (`MAX_AGE_MIN` in the workflow, currently 120
+minutes) — so a normal day settles into roughly five real builds, with the
+rest exiting as no-ops in seconds. See
+[When RASP is unavailable](#when-rasp-is-unavailable) and
+[Scheduling reliability](#scheduling-reliability).
 
 The odd minute is deliberate: GitHub delays scheduled runs under load and
 drops some entirely, and the top of the hour is the worst window — see
@@ -191,7 +194,7 @@ Output:
 | `out/halfhour.csv`            | Every half-hour rating, 7 days              |
 | `out/summary.csv`             | One row per day with fly score and metrics  |
 | `cambridge_rasp.ics`          | The calendar file                           |
-| `build_state.json`            | Which models were fetched (drives rechecks) |
+| `build_state.json`            | Which models were fetched (drives the next run's rebuild decision) |
 
 ### What is and isn't committed
 
@@ -204,7 +207,7 @@ rebuild. They're still built, still deployed, still linkable at
 `/charts/<date>_<model>.png` — just not in git.
 
 `build_state.json`, the CSVs and `index.html` *are* committed: the first
-because the next hourly recheck has to read it, the rest because they're small
+because the next scheduled run has to read it, the rest because they're small
 and make a usable audit trail.
 
 ## When RASP is unavailable
@@ -221,11 +224,13 @@ event instead:
    ⟳ RASP data unavailable
 ```
 
-Opening it explains which failure it was — server unreachable, chart not yet
-regenerated for today, or chart retrieved but unparseable — and says a recheck
-is coming. The scheduled hourly recheck then replaces it (same event UID) as
-soon as RASP is serving that chart again, so a bad morning costs you an hour
-of one day's entry rather than the rest of the day.
+Opening it explains that there is no forecast for that day and that a retry
+is coming. A later scheduled run then replaces it (same event UID) as soon
+as RASP is serving that chart again, so a bad morning costs you an hour of
+one day's entry rather than the rest of the day. Why the fetch failed —
+server unreachable, chart not yet regenerated, chart unparseable — is
+operational detail that stays in the Actions log and `build_state.json`,
+not in a calendar entry.
 
 Each run writes `public/build_state.json` recording which of the seven models
 came back:
@@ -236,12 +241,13 @@ came back:
               "reason": "chart Last-Modified 2026-07-28 is from before today" } ] }
 ```
 
-The hourly recheck reads that file first: if the last run covered today with
-all seven days, it exits in a few seconds without rebuilding, committing or
-redeploying. So the extra runs cost almost nothing on a normal day and only do
-real work when there's a gap to close. The 05:00 / 08:00 / 10:00 runs always
-rebuild regardless, so the volatile UK4 "today" curve still picks up RASP's
-intra-day reruns.
+Every scheduled run reads that file first: if the last run covered today
+with all seven days and the data is younger than `MAX_AGE_MIN` (set in the
+workflow), it exits in a few seconds without rebuilding, committing or
+redeploying. So the hourly slots cost almost nothing on a normal day and
+only do real work when there's a gap to close — or when the data has aged
+out, which is how the volatile UK4 "today" curve still picks up RASP's
+intra-day reruns without any fixed "always rebuild" slots.
 
 ## Scheduling reliability
 
@@ -263,14 +269,35 @@ Measured here on 2026-07-29, with every cron still at `:00`:
 | 16:00 | — | dropped |
 | 17:00 | 17:16 | +16 min |
 
-Three of eight slots never fired. Everything therefore runs at **:23** now —
-an unpopular minute, avoiding both the quarter-hours and the multiples of five
-that `*/5`-style schedules cluster on.
+Three of eight slots never fired. Moving to an unpopular minute helps less
+than you'd hope: re-measured at `:23` over three days, the loss rate was
+still ~30%, one dispatch ran +74 minutes late, and the pre-dawn slots never
+fired at all — a blackout that persisted at `:13` too. The delay pattern
+also repeats day to day within a few minutes, so it tracks global cron load
+rather than random jitter. The minute has been through `:00` → `:23` →
+`:13` → `:45` (current); none measurably beat the others, so any minute
+choice is a cheap experiment, not a fix. The schedule now covers all 24
+hours, because more pre-dawn slots are the only cheap way to get a chance
+at an early-bird build — an overnight slot with nothing to do costs about
+ten seconds.
 
-Design-wise the schedule is treated as lossy: no single firing matters,
-because any run that finds a gap in `build_state.json` closes it, and the ten
-recheck slots give ten chances to do so. A dropped 05:23 just means the
-calendar refreshes at 06:23 or 07:23 instead.
+What actually makes the schedule reliable is treating it as lossy: no
+single firing matters. Every hourly slot re-runs the same decision —
+rebuild if the published data is incomplete, from the wrong UTC day, or
+older than `MAX_AGE_MIN` — so a dropped slot just defers to the next
+surviving one, and any run that finds a gap closes it. There is
+deliberately no distinction between "anchor" and "recheck" runs any more:
+an earlier design with unconditional anchor crons plus conditional hourly
+rechecks left a dropped anchor uncompensated (the next recheck saw complete
+state and skipped, so the "today" curve stayed stale), and told the two
+apart by parsing the cron string, which made the schedule fragile to edit.
+
+One sizing rule for `MAX_AGE_MIN`, learned the slow way: it is a **floor,
+not an interval**. The real refresh period is the floor plus the wait for
+the next slot that actually arrives — measured 136–180 minutes between
+arrivals over 2026-08-04..06. Keep the floor below that minimum gap: at 180
+it sat just above it and silently skipped alternate surviving runs, turning
+a nominal 3-hour policy into a ~5-hour one. It is 120 now.
 
 If a firing ever becomes genuinely load-bearing, don't lean harder on GitHub's
 scheduler — trigger `workflow_dispatch` from an external scheduler via the
@@ -302,7 +329,9 @@ debugging a quiet morning:
 
 - RASP model runs update through the day. The "today" curve (UK4) refreshes
   more than once; fetching after ~10 am UK gives the most trustworthy
-  outlook for the afternoon — which is what the 10:00 UTC build does.
+  outlook for the afternoon. The max-age rule keeps rebuilding every couple
+  of hours through the day, so the late-morning and afternoon reruns are
+  picked up as a matter of course.
 - The parser assumes the chart template is unchanged. If the RASP admins
   alter the chart colour, axis range, or size, the line-colour constant
   may need updating. The audit-trail PNGs in `/charts` make any drift
@@ -319,6 +348,14 @@ debugging a quiet morning:
 - Forecasts beyond D+2 (UK12 grid) are inherently coarser. Don't commit a
   cross-country task to a UK12+5 reading; do use it to spot which day in
   the back half of the week is worth checking again on the morning.
+
+## Project documentation
+
+Contributor-facing documentation lives in [`docs/`](docs/index.md) —
+architecture, publishing model, scheduling design and measurements,
+troubleshooting, plus filesystem and dependency maps. AI agents (and
+humans in a hurry) should start at [`AI_README.md`](AI_README.md), which
+holds the rules that must not be broken.
 
 ## Acknowledgements
 
