@@ -37,9 +37,12 @@ import csv
 import datetime as dt
 import io
 import json
+import socket
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -54,6 +57,61 @@ BASE = "https://app.stratus.org.uk/blip/graph/blip_stars.php"
 # Day index 0..6 -> model code. Taken directly from the RASP JS on the
 # town-and-city-forecasts page.
 DAY_MODELS = ["UK4", "UK4+1", "UK4+2", "UK12+3", "UK12+4", "UK12+5", "UK12+6"]
+
+# -----------------------------------------------------------------------------
+# Freshness policy - THE table.  Tune here; nothing else decides staleness.
+#
+# Keyed by day offset from today.  Two numbers per horizon:
+#
+#   refresh_after   minutes we may keep the chart we already hold before
+#                   asking RASP for a newer one.  0 = try every run.
+#   expire_hour     the wall-clock hour (UTC) at which a held chart stops
+#                   being publishable, however recently it was fetched.
+#
+# Why two, and why the second is a CLOCK time rather than a duration: a
+# forecast is *for a calendar day*, so what makes yesterday's chart
+# worthless is not that N hours elapsed, it is that the overnight model
+# run happened.  Everything held is therefore dropped at the same daily
+# boundary, and a rolling age would let a chart fetched at 23:00 outlive
+# one fetched at 06:00 for no good reason.
+#
+# 03:00 UTC (04:00 BST) - after the overnight regen, before anyone looks
+# at the day.  Same for every horizon today, but it is a per-row column
+# so a horizon can be given its own boundary without touching the logic.
+#
+# refresh_after is what differs by horizon.  Today and tomorrow always
+# chase the latest: the UK4 "today" curve moves intra-day and tomorrow is
+# the day you decide on.  Further out the model only regenerates about
+# twice a day, so a shorter interval re-fetches identical bytes - and
+# every request avoided is one less chance of tripping the bot protection
+# sitting in front of RASP.
+#
+# Between refresh_after and expiry the chart is still published, with its
+# true retrieval time stated on the entry.  That is the point: "we could
+# not fetch" and "the forecast is unknown" are different, and only the
+# second one deserves a blank.  Nobody reads an old rating as a current
+# one, which is what the never-carry-stale-data rule was protecting.
+#
+#                    refresh_after   expire_hour_utc
+FRESHNESS: dict[int, tuple[int, int]] = {
+    0:                (0,            3),   # today    - always refresh
+    1:                (0,            3),   # tomorrow - always refresh
+    2:                (6 * 60,       3),
+    3:                (12 * 60,      3),
+    4:                (12 * 60,      3),
+    5:                (24 * 60,      3),   # +5 / +6  - a day is ample here
+    6:                (24 * 60,      3),
+}
+FRESHNESS_DEFAULT = (0, 3)
+
+# Network behaviour.  Retries help a TIMEOUT and do nothing for a bot
+# challenge: each Actions job holds one IP, so if that IP is challenged,
+# retrying from the same runner is challenged too.  Only transient
+# transport errors are retried - an intercept page raises NotAChartError
+# outside the loop and fails immediately.
+FETCH_TIMEOUT = 30
+FETCH_RETRIES = 2
+FETCH_BACKOFF = 3.0
 
 # Default location: Cambridge (from locn dropdown value '52.21N,0.13E')
 DEFAULT_LAT = 52.21
@@ -167,11 +225,24 @@ def fetch_png(model: str, lat: float, lon: float) -> bytes:
     }
     url = f"{BASE}?{urlencode(params)}"
     req = Request(url, headers={"User-Agent": "rasp-stars-poller/1.0"})
-    with urlopen(req, timeout=30) as resp:
-        data = resp.read()
-        lm_header = resp.headers.get("Last-Modified", "")
-        status = resp.status
-        headers = resp.headers
+    last_exc: Exception | None = None
+    for attempt in range(1 + FETCH_RETRIES):
+        if attempt:
+            time.sleep(FETCH_BACKOFF * attempt)
+            print(f"    retry {attempt}/{FETCH_RETRIES} after {last_exc}",
+                  file=sys.stderr)
+        try:
+            with urlopen(req, timeout=FETCH_TIMEOUT) as resp:
+                data = resp.read()
+                lm_header = resp.headers.get("Last-Modified", "")
+                status = resp.status
+                headers = resp.headers
+            break
+        except (TimeoutError, socket.timeout, URLError) as e:
+            last_exc = e
+    else:
+        raise TimeoutError(
+            f"{1 + FETCH_RETRIES} attempts failed; last: {last_exc}")
     if not data.startswith(b"\x89PNG"):
         raise NotAChartError(_describe_non_png(data, status, headers, url))
     # Compare Last-Modified day (UTC) with today (UTC).  If older than today,
@@ -332,18 +403,32 @@ class DaySummary:
     xc_end: str                    # last HH:MM at >= 2 stars (or "")
     slots: list[tuple[str, float]]
     png: bytes = b""               # raw PNG bytes for embedding in ICS
+    # Provenance.  fetched_utc is when the chart was RETRIEVED FROM RASP,
+    # which is not the same as when this build ran - a carried-forward
+    # chart keeps its original stamp so the calendar can state it.
+    fetched_utc: dt.datetime | None = None
+    source_model: str = ""         # model that produced the chart we hold
+    origin: str = "fresh"          # "fresh" | "cached" | "carried"
 
 
 @dataclass
 class DayFailure:
     """
-    One forecast day we could not produce a rating for.
+    One forecast day we have nothing publishable for.
 
-    We deliberately do NOT fall back to a previously-fetched value: a stale
-    star rating presented as current is worse than no rating at all, because
-    the reader has no way to tell the difference.  Instead the day is
-    published as a placeholder event that says so, and the next scheduled
-    run replaces it once RASP is serving the chart again.
+    A day only lands here once the chart we hold has passed its expiry in
+    FRESHNESS - i.e. the overnight boundary went by and no fetch has
+    succeeded since.  Short of that, a failed fetch reuses the chart we
+    already have and the entry states when it was retrieved.
+
+    The original rule here was "never fall back to a previously-fetched
+    value: a stale rating presented as current is worse than none".  The
+    principle stands and this is still an implementation of it - the
+    reader always CAN tell the difference, because the retrieval time is
+    on the entry.  What changed is the recognition that blanking a chart
+    fetched two hours ago destroys data that is still perfectly good, and
+    that a blank week is worse for the reader than an honestly-labelled
+    one.
     """
     date: dt.date
     model: str
@@ -477,9 +562,104 @@ def _build_description(s: "DaySummary", location: str,
         f"{first_t} {spark_chars} {last_t}",
         "(each block = 30 min, height ∝ stars)",
         "",
-        f"Forecast retrieved {generated_utc.strftime('%Y-%m-%d %H:%M UTC')}",
+        *_provenance_lines(s, generated_utc),
     ]
     return "\n".join(body_lines)
+
+
+def _provenance_lines(s: "DaySummary",
+                      generated_utc: dt.datetime) -> list[str]:
+    """
+    What the reader needs to judge the rating for themselves: when the
+    chart was actually retrieved, whether it has been refreshed since,
+    and whether it came from a coarser model than this slot wants.
+    """
+    when = s.fetched_utc or generated_utc
+    lines = [f"Chart retrieved {when.strftime('%Y-%m-%d %H:%M UTC')}"]
+    if s.origin != "fresh":
+        hours = (generated_utc - when).total_seconds() / 3600
+        lines.append(
+            f"Not refreshed since - {hours:.1f}h old as of "
+            f"{generated_utc.strftime('%H:%M UTC')}"
+        )
+    if s.source_model and s.source_model != s.model:
+        lines.append(
+            f"From the {s.source_model} run - {s.model} not yet available"
+        )
+    return lines
+
+
+def _expires_at(fetched: dt.datetime, hour: int) -> dt.datetime:
+    """First `hour`:00 UTC strictly after `fetched`."""
+    boundary = fetched.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if boundary <= fetched:
+        boundary += dt.timedelta(days=1)
+    return boundary
+
+
+def _chart_filename(date: dt.date, model: str) -> str:
+    return f"{date.isoformat()}_{model.replace('+', '_')}.png"
+
+
+def _http_bytes(url: str, timeout: int = FETCH_TIMEOUT) -> bytes:
+    req = Request(url, headers={"User-Agent": "rasp-stars-poller/1.0"})
+    with urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def load_published_state(base_url: str | None) -> dict[str, dict]:
+    """
+    Read the previous run's build_state.json straight off the published
+    site, keyed by ISO date.
+
+    The Pages artifact already contains both the state file and every
+    chart PNG, so the live site IS the last-known-good store: no cache to
+    configure, no extra storage, nothing to evict, and it is by definition
+    exactly what subscribers are currently being served.  A cold start (no
+    site yet) or an unreachable site just means no fallback this run.
+    """
+    if not base_url:
+        return {}
+    url = base_url.rstrip("/") + "/build_state.json"
+    try:
+        state = json.loads(_http_bytes(url).decode("utf-8"))
+    except Exception as e:
+        print(f"  no previous state from {url}: {e}", file=sys.stderr)
+        return {}
+    # Days written before provenance existed carry no per-day stamp; the
+    # build-level timestamp is the best available answer for those.
+    fallback_stamp = state.get("generated_utc", "")
+    out: dict[str, dict] = {}
+    for d in state.get("days", []):
+        if d.get("status") not in ("ok", "cached", "carried"):
+            continue
+        stamp = d.get("fetched_utc") or fallback_stamp
+        try:
+            fetched = dt.datetime.strptime(
+                stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        except (ValueError, TypeError):
+            continue
+        out[d["date"]] = {
+            "source_model": d.get("source_model") or d.get("model", ""),
+            "fetched_utc": fetched,
+        }
+    return out
+
+
+def fetch_published_chart(base_url: str, date: dt.date,
+                          source_model: str) -> bytes | None:
+    """Pull one already-published chart PNG back off the live site."""
+    url = (base_url.rstrip("/") + "/charts/"
+           + _chart_filename(date, source_model))
+    try:
+        data = _http_bytes(url)
+    except Exception as e:
+        print(f"    held chart not retrievable ({url}): {e}", file=sys.stderr)
+        return None
+    if not data.startswith(b"\x89PNG"):
+        print(f"    held chart is not a PNG ({url})", file=sys.stderr)
+        return None
+    return data
 
 
 PLACEHOLDER_SUMMARY = "⟳ RASP data unavailable"
@@ -615,8 +795,7 @@ def _build_html(s: "DaySummary", location: str, b64: str,
         f'<p style="margin:0"><img src="{data_uri}" '
         f'alt="RASP stars chart" style="max-width:100%"></p>'
         f'<p style="margin:12px 0 0 0;color:#999;font-size:11px">'
-        f'Forecast retrieved '
-        f'{generated_utc.strftime("%Y-%m-%d %H:%M UTC")}</p>'
+        f'{"<br>".join(_provenance_lines(s, generated_utc))}</p>'
         '</body></html>'
     )
 
@@ -742,28 +921,39 @@ def write_ics(path: Path, summaries: list[DaySummary], location: str,
 def write_state(path: Path, summaries: list[DaySummary],
                 failures: list[DayFailure], today: dt.date) -> dict:
     """
-    Record what this run managed to fetch, so the next scheduled run can
-    decide whether it needs to do anything at all.
+    Record what this run published and where each day came from.
 
-    The hourly workflow reads this: if the last run covered today's date
-    and every model came back fresh, there is nothing to recheck and the
-    run exits in seconds.  Any gap means RASP was mid-refresh or down, and
-    the next hourly run tries again.
+    This file has two readers.  The workflow uses the top-level fields to
+    decide whether to build at all.  The NEXT run uses the per-day
+    `fetched_utc` / `source_model` to find and age the charts it already
+    holds - which is why this file is published alongside the charts
+    rather than kept only in git.
     """
+    now = dt.datetime.now(dt.timezone.utc)
     days = (
-        [{"date": s.date.isoformat(), "model": s.model, "status": "ok"}
+        [{"date": s.date.isoformat(),
+          "model": s.model,
+          "source_model": s.source_model or s.model,
+          # "ok" = fetched this run; "cached" = held, inside its refresh
+          # window; "carried" = held because the refresh failed.  The next
+          # run reads all three back as usable.
+          "status": "ok" if s.origin == "fresh" else s.origin,
+          "fetched_utc": (s.fetched_utc or now)
+                           .strftime("%Y-%m-%dT%H:%M:%SZ")}
          for s in summaries]
         + [{"date": f.date.isoformat(), "model": f.model,
             "status": f.kind, "reason": f.reason}
            for f in failures]
     )
     days.sort(key=lambda d: d["date"])
+    fresh = sum(1 for s in summaries if s.origin == "fresh")
     state = {
-        "generated_utc": dt.datetime.now(dt.timezone.utc)
-                           .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "run_date": today.isoformat(),
         "complete": not failures,
-        "days_ok": len(summaries),
+        "days_ok": len(summaries),        # publishable, however obtained
+        "days_fresh": fresh,              # actually fetched this run
+        "days_held": len(summaries) - fresh,
         "days_failed": len(failures),
         "days": days,
     }
@@ -779,28 +969,74 @@ def run(location: str, lat: float, lon: float,
         today: dt.date | None = None,
         state: Path | None = None,
         retry_note: str = RETRY_NOTE_DEFAULT,
+        previous_base: str | None = None,
         ) -> tuple[list[DaySummary], list[DayFailure]]:
     out_dir.mkdir(parents=True, exist_ok=True)
     today = today or dt.date.today()
+    now = dt.datetime.now(dt.timezone.utc)
+    previous = load_published_state(previous_base)
     summaries: list[DaySummary] = []
     failures: list[DayFailure] = []
     for i, model in enumerate(DAY_MODELS):
         date = today + dt.timedelta(days=i)
-        try:
-            png = fetch_png(model, lat, lon)
-        except StaleChartError as e:
-            print(f"  [{date} {model}] STALE: {e}", file=sys.stderr)
-            failures.append(DayFailure(date, model, str(e), "stale"))
+        refresh_after, expire_hour = FRESHNESS.get(i, FRESHNESS_DEFAULT)
+        held = previous.get(date.isoformat())
+        age_min = None
+        held_ok = False
+        if held:
+            age_min = (now - held["fetched_utc"]).total_seconds() / 60
+            held_ok = now < _expires_at(held["fetched_utc"], expire_hour)
+        # Fetch when we hold nothing, when what we hold is due a refresh,
+        # OR when it has expired.  That last clause matters: expiry always
+        # forces one more attempt, otherwise a long refresh interval could
+        # let a chart expire before we ever tried to replace it, and the
+        # day would blank for hours waiting for its own refresh window.
+        want_fetch = held is None or not held_ok or age_min >= refresh_after
+
+        png: bytes | None = None
+        origin, fetched, src_model = "fresh", now, model
+        err: tuple[str, str] | None = None
+        if want_fetch:
+            try:
+                png = fetch_png(model, lat, lon)
+            except StaleChartError as e:
+                print(f"  [{date} {model}] STALE: {e}", file=sys.stderr)
+                err = ("stale", str(e))
+            except NotAChartError as e:
+                print(f"  [{date} {model}] NOT A CHART: {e}", file=sys.stderr)
+                err = ("intercepted", str(e))
+            except Exception as e:
+                print(f"  [{date} {model}] fetch failed: {e}", file=sys.stderr)
+                err = ("fetch", str(e))
+        else:
+            print(f"  [{date} {model}] holding - {age_min:.0f}m old, "
+                  f"refresh due at {refresh_after}m", file=sys.stderr)
+
+        # Fall back to what we already published, if it is still in date.
+        if png is None and held is not None and held_ok:
+            cached = fetch_published_chart(
+                previous_base, date, held["source_model"])
+            if cached is not None:
+                png = cached
+                origin = "carried" if want_fetch else "cached"
+                fetched = held["fetched_utc"]
+                src_model = held["source_model"]
+
+        if png is None:
+            if err is not None:
+                kind, reason = err
+            elif held is not None and not held_ok:
+                kind = "expired"
+                reason = (f"chart retrieved "
+                          f"{held['fetched_utc'].strftime('%Y-%m-%d %H:%M UTC')} "
+                          f"expired at the {expire_hour:02d}:00 UTC boundary")
+            else:
+                kind = "fetch"
+                reason = "held chart could not be retrieved from the site"
+            failures.append(DayFailure(date, model, reason, kind))
             continue
-        except NotAChartError as e:
-            print(f"  [{date} {model}] NOT A CHART: {e}", file=sys.stderr)
-            failures.append(DayFailure(date, model, str(e), "intercepted"))
-            continue
-        except Exception as e:
-            print(f"  [{date} {model}] fetch failed: {e}", file=sys.stderr)
-            failures.append(DayFailure(date, model, str(e), "fetch"))
-            continue
-        (out_dir / f"{date.isoformat()}_{model.replace('+', '_')}.png").write_bytes(png)
+
+        (out_dir / _chart_filename(date, src_model)).write_bytes(png)
         try:
             slots = parse_stars_png(png)
         except Exception as e:
@@ -809,6 +1045,9 @@ def run(location: str, lat: float, lon: float,
             continue
         s = summarise(date, model, slots)
         s.png = png
+        s.fetched_utc = fetched
+        s.source_model = src_model
+        s.origin = origin
         summaries.append(s)
         print(
             f"  {date} ({date.strftime('%a')}) {model:>7}  "
@@ -817,6 +1056,9 @@ def run(location: str, lat: float, lon: float,
             f"mean {s.mean:.2f}*  "
             f">=1*: {s.soarable_hours:>4.1f}h  >=2*: {s.good_hours:>4.1f}h  "
             f">=3*: {s.great_hours:>4.1f}h"
+            + ("" if s.origin == "fresh"
+               else f"  [{s.origin} from "
+                    f"{s.fetched_utc.strftime('%d %b %H:%M')}Z]")
         )
     for f in failures:
         print(f"  {f.date} ({f.date.strftime('%a')}) {f.model:>7}  "
@@ -840,15 +1082,25 @@ if __name__ == "__main__":
                    help="Write an ICS calendar file to this path")
     p.add_argument("--state", type=Path, default=None,
                    help="Write a JSON build-state file to this path "
-                        "(used by the workflow to decide whether an hourly "
-                        "recheck is needed)")
+                        "(also read back by the next run, off the "
+                        "published site, to age the charts it holds)")
+    p.add_argument("--previous-base", default=None,
+                   help="Base URL of the published site, e.g. "
+                        "https://user.github.io/repo - used to recover "
+                        "the previous build_state.json and charts when a "
+                        "fetch fails.  Omit to disable carry-forward.")
     args = p.parse_args()
     print(f"RASP Stars for {args.location} ({args.lat},{args.lon})")
     summaries, failures = run(args.location, args.lat, args.lon,
-                              args.out_dir, args.ics, state=args.state)
+                              args.out_dir, args.ics, state=args.state,
+                              previous_base=args.previous_base)
+    held = [s for s in summaries if s.origin != "fresh"]
+    if held:
+        print(f"\n{len(held)} of {len(DAY_MODELS)} days published from "
+              f"charts already held (retrieval time shown on each entry).")
     if failures:
         print(f"\n{len(failures)} of {len(DAY_MODELS)} days unavailable - "
-              f"placeholders published; an hourly recheck will retry.")
+              f"placeholders published; the next run will retry.")
     # Exit 0 either way: the placeholders are a valid, publishable result and
     # the build must still deploy them.  Completeness is signalled through
     # the state file, not the exit code.

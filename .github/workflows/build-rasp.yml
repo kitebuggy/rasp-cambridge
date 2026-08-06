@@ -129,24 +129,24 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           STATE: public/build_state.json
-          # MAX_AGE_MIN is the entire scheduling policy, in one number.
-          # It is a FLOOR, not an interval: the real refresh period is
-          # this value plus however long until the next slot actually
-          # arrives, which measured 136-180 min over 2026-08-04..06.
+          # MAX_AGE_MIN is now only a DEBOUNCE, not the freshness policy.
+          # Freshness moved into the FRESHNESS table in rasp_stars.py,
+          # which decides per forecast day how old a chart may get before
+          # it is re-fetched and before it stops being publishable.  Today
+          # and tomorrow are re-fetched on every build, so there is no
+          # longer any build-level "too fresh to bother" state.
           #
-          # Keep it BELOW that minimum gap.  It was 180 from 2026-08-03
-          # to 08-06 and that was the bug: sitting just above the gap, it
-          # skipped alternate surviving runs, so a nominal 3-hour policy
-          # refreshed every ~5 hours.  On 2026-08-06 the 10:47 run missed
-          # the cut by about a minute.
+          # What survives here is a floor to stop a burst of scheduler
+          # deliveries hammering RASP: 45 minutes is under the smallest
+          # gap ever observed between real runs (136 min), so in practice
+          # it never binds - it exists for the day GitHub decides to give
+          # us all 24 slots at once.
           #
-          # At 120 every surviving run rebuilds - roughly 5 builds a day,
-          # ~35 chart requests against RASP.  Raise it to cut that load
-          # (240 gives ~3 builds: morning, midday, evening), but note it
-          # only governs the happy path: when RASP is intercepted,
-          # complete=false short-circuits the age check and every run
-          # retries regardless.
-          MAX_AGE_MIN: "120"
+          # Do NOT grow this back into a freshness knob.  It was 180 for
+          # three days and silently halved the build rate; the reason that
+          # was possible is that a single global number cannot express
+          # "today matters more than next Tuesday".
+          MAX_AGE_MIN: "45"
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" != "schedule" ]; then
@@ -221,10 +221,20 @@ jobs:
         if: steps.decide.outputs.build == 'true'
         run: |
           mkdir -p public/charts
+          # --previous-base points the script at our own published site.
+          # The Pages artifact already holds build_state.json and every
+          # chart PNG, so the live site doubles as the last-known-good
+          # store: when a fetch fails, the script pulls back what
+          # subscribers are already being served rather than blanking the
+          # day.  No cache to configure and nothing to evict.
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          OWNER_LC="$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
           python rasp_stars.py \
             --out-dir ./public/charts \
             --ics ./public/cambridge_rasp.ics \
-            --state ./public/build_state.json
+            --state ./public/build_state.json \
+            --previous-base "https://${OWNER_LC}.github.io/${REPO}"
 
       - name: Add an index page (optional, for browsing)
         if: steps.decide.outputs.build == 'true'
