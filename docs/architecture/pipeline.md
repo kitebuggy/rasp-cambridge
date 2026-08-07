@@ -6,28 +6,43 @@
 calendar. Everything happens in a single pass per run: fetch each day's
 chart, parse the pixels into half-hourly star values, summarise each day
 into a 0-5 fly score, and write the CSVs, the ICS and the build-state file.
-Days that fail become placeholder events, never stale data.
+A day whose fetch fails falls back to the chart already published for it,
+labelled with its retrieval time; only once that chart passes its expiry
+does the day become a placeholder.
 
 ## Data flow
 
 ```
-app.stratus.org.uk/blip/graph/blip_stars.php   (7 requests, one per model)
-        │  PNG bytes
-        ▼
-fetch_png ── Last-Modified < today? ──► StaleChartError ─┐
-        │    not a PNG? ──► NotAChartError ──────────────┤
-        ▼                                                │
-parse_stars_png (tick detection, pixel scan)             │
-        │  [(HH:MM, stars)] per day     parse error ─────┤
-        ▼                                                ▼
-summarise ──► DaySummary (per good day)          DayFailure (per bad day)
-        │                                                │
-        ▼                                                ▼
+                        FRESHNESS[offset] → (refresh_after, expire_hour)
+                                 │
+   held chart due a refresh, expired, or absent?  ──no──► reuse it ("cached")
+                                 │yes                          │
+                                 ▼                             │
+app.stratus.org.uk/blip/graph/blip_stars.php  (only the days that need it)
+        │  PNG bytes                                           │
+        ▼                                                      │
+fetch_png ── Last-Modified < today? ──► StaleChartError ─┐     │
+        │    not a PNG? ──► NotAChartError ──────────────┤     │
+        │    timeout/URLError ──► 2 retries, backoff ────┤     │
+        ▼                                                ▼     │
+        │                                    held chart still in date?
+        │                                          │yes    │no │
+        │                             reuse it ("carried") │   │
+        ▼                                          │       ▼   │
+parse_stars_png (tick detection, pixel scan) ◄─────┴───────┼───┘
+        │  [(HH:MM, stars)] per day     parse error ───────┤
+        ▼                                                  ▼
+summarise ──► DaySummary (+ fetched_utc,          DayFailure (per blank day)
+        │      source_model, origin)                       │
+        ▼                                                  ▼
 write_csv / write_summary_csv        write_ics (real events + placeholders,
         │                                       shared UID scheme)
-        ▼                                                │
-write_state ──► build_state.json  ◄──────────────────────┘
-                (read by the next workflow run's decide step)
+        ▼                                                  │
+write_state ──► build_state.json  ◄────────────────────────┘
+                │
+                └─► published to Pages, and read back next run via
+                    --previous-base (load_published_state /
+                    fetch_published_chart) as the last-known-good store
 ```
 
 ## The data source
@@ -55,13 +70,46 @@ Two important facts about `blip_stars.php`, verified 2026-07-29:
   rejected by the tick-count guard (below) rather than parsing into a bogus
   rating.
 
-## Freshness guard (fetch_png)
+## Two different kinds of "old data"
 
-RASP serves yesterday's file until it regenerates a model. `fetch_png`
-parses the `Last-Modified` header and raises `StaleChartError` when its UTC
-date predates today. This is the enforcement point of the repo's freshness
-rule (AI_README Critical rule 1): recovery is by retry on a later run, never
-by using the stale chart.
+Do not conflate these - the first is rejected, the second is published.
+
+**RASP serving yesterday's file** (`StaleChartError`). RASP keeps serving
+the previous run's chart until it regenerates a model, and that file has
+yesterday's date stamped *inside* it. `fetch_png` parses the
+`Last-Modified` header and rejects anything whose UTC date predates today.
+Never weaken this guard: the chart is mislabelled at source, so we cannot
+say anything truthful about it.
+
+**A chart we fetched ourselves earlier** (carry-forward). This one we know
+the provenance of exactly, so it can be republished with its retrieval time
+on the entry. Governed by `FRESHNESS`, keyed by day offset:
+
+| Day | Model | `refresh_after` | `expire_hour` |
+|-----|-------|-----------------|---------------|
+| 0 (today) | UK4 | always | 03:00 UTC |
+| +1 | UK4+1 | always | 03:00 UTC |
+| +2 | UK4+2 | 6 h | 03:00 UTC |
+| +3, +4 | UK12+3/4 | 12 h | 03:00 UTC |
+| +5, +6 | UK12+5/6 | 24 h | 03:00 UTC |
+
+`refresh_after` is when to ask RASP again; `expire_hour` is when a held
+chart stops being publishable regardless. Expiry is a **clock time, not a
+duration**, because what invalidates a chart is the overnight model run,
+not elapsed hours - and a rolling age would let a chart fetched at 23:00
+outlive one fetched at 06:00 for no reason.
+
+`want_fetch = nothing held OR expired OR age >= refresh_after`. The
+`expired` clause is load-bearing: without it a 24 h refresh interval could
+let a chart expire before its own refresh window opened, blanking the day
+for hours.
+
+Three publishable states result - `ok` (fetched this run), `cached` (held,
+inside its refresh window), `carried` (held because the refresh failed) -
+and all three are read back as usable by the next run. Non-fresh entries
+carry provenance lines: retrieval time, current age, and - if the held
+chart came from a coarser model than the slot wants, since a date walks
+UK12+6 → … → UK4 as it approaches - which model produced it.
 
 ## Chart parsing (parse_stars_png, _find_ticks)
 
@@ -120,9 +168,11 @@ the README's "What the fly score means" section.
 
 ## Placeholders (DayFailure)
 
-Fetch, staleness and parse failures each yield a `DayFailure` with a `kind`
-(`stale` / `intercepted` / `fetch` / `parse`) and a human-readable
-`reason`. The placeholder event renders **neither** kind nor reason - it
+A day only reaches `DayFailure` once nothing publishable is left: the fetch
+failed (or was never attempted) *and* the held chart is past `expire_hour`,
+or there was never a held chart. `kind` is `stale` / `intercepted` /
+`fetch` / `parse` / `expired`, with a human-readable `reason`. The
+placeholder event renders **neither** kind nor reason - it
 says only that no forecast is available, that blank-on-purpose beats stale
 data, and that a retry is coming (`RETRY_NOTE_DEFAULT`, deliberately vague
 about times because the scheduler is lossy). The diagnostics go to stderr
@@ -131,10 +181,19 @@ and into `build_state.json`. This split is AI_README Critical rule 2.
 ## Build state (write_state)
 
 `build_state.json` records `generated_utc`, `run_date`, `complete`,
-`days_ok`/`days_failed` and a per-day status list. It is the **only
-cross-run persistence in the system** - the workflow's decide step reads it
-to choose rebuild vs no-op (see `../operations/scheduling.md`), which is
-why it is committed to git while the ICS is not.
+`days_ok` (publishable however obtained), `days_fresh` (actually fetched
+this run), `days_held`, `days_failed`, and a per-day list carrying
+`status`, `source_model` and `fetched_utc`.
+
+It has **two readers**. The workflow's decide step uses the top-level
+fields to choose rebuild vs no-op (see `../operations/scheduling.md`) -
+which is why it is committed to git. The *next run* uses the per-day
+`fetched_utc` / `source_model` to find and age the charts it holds, reading
+them back off the published site rather than from git - which is why it is
+also deployed alongside the charts.
+
+A healthy steady state is `days_fresh: 2, days_held: 5`: today and tomorrow
+refreshed, the rest inside their windows.
 
 ## Exit-code contract
 

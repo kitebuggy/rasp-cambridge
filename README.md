@@ -64,12 +64,13 @@ always renders, and the audit-trail PNGs are linkable from the repo's
    `https://<you>.github.io/<repo>/cambridge_rasp.ics`. Subscribe to it from
    your calendar app of choice as above.
 
-The workflow then runs hourly, round the clock. Each run first reads
-`public/build_state.json` and only rebuilds (and redeploys to Pages) when
-the published data is missing days, is from a previous UTC day, or is older
-than the max-age floor (`MAX_AGE_MIN` in the workflow, currently 120
-minutes) — so a normal day settles into roughly five real builds, with the
-rest exiting as no-ops in seconds. See
+The workflow then runs hourly, round the clock. Each run rebuilds unless
+it fired within `MAX_AGE_MIN` (45 minutes) of the previous build — that is
+a debounce against a burst of scheduler deliveries, **not** a freshness
+rule. What actually gets re-fetched is decided per forecast day by the
+`FRESHNESS` table in `rasp_stars.py`: today and tomorrow every run, the
+back half of the week once or twice a day. A typical run therefore costs
+two requests to RASP rather than seven. See
 [When RASP is unavailable](#when-rasp-is-unavailable) and
 [Scheduling reliability](#scheduling-reliability).
 
@@ -206,48 +207,142 @@ PNGs don't delta), and tracking them added ~500 KB of permanent history per
 rebuild. They're still built, still deployed, still linkable at
 `/charts/<date>_<model>.png` — just not in git.
 
+The artifact has a second job: because it holds both the charts and
+`build_state.json`, it doubles as the build's last-known-good store. See
+[When RASP is unavailable](#when-rasp-is-unavailable).
+
 `build_state.json`, the CSVs and `index.html` *are* committed: the first
 because the next scheduled run has to read it, the rest because they're small
 and make a usable audit trail.
 
 ## When RASP is unavailable
 
-RASP is a volunteer-run service and sometimes doesn't answer, or hasn't yet
-regenerated a model when the build asks for it. The rule here is that a
-**stale rating is worse than no rating** — a 4★ reading from yesterday's model
-run looks identical to a fresh one, and there's no way for the reader to tell.
-So the build never carries a value forward. Every run rebuilds all seven days
-from live charts, and a day that can't be read is published as a placeholder
-event instead:
+RASP is a volunteer-run service. It sometimes doesn't answer, sometimes
+hasn't regenerated a model when the build asks for it, and sometimes sits
+behind a bot-protection interstitial that returns an HTML page with a
+misleading `HTTP 200`.
+
+The governing rule is still that **a stale rating presented as current is
+worse than no rating** — a 4★ reading from yesterday's model run looks
+identical to a fresh one. The original implementation enforced that by
+never carrying a value forward at all. That turned out to solve the right
+problem the wrong way: because every run pruned, re-fetched all seven
+charts and redeployed, a single failed fetch *destroyed* data that was
+still perfectly good. One timeout blanked the entire week for every
+subscriber until the next successful run.
+
+The fix was to notice that "we could not fetch" and "the forecast is
+unknown" are different things. The reader only needs to be able to *tell
+the difference* — so every entry now states when its chart was retrieved,
+and a day is blanked only once its data is genuinely obsolete.
+
+### The freshness table
+
+`FRESHNESS` near the top of `rasp_stars.py` is the entire policy. Two
+numbers per day offset:
+
+| Day | Model | `refresh_after` | `expire_hour` |
+|-----|-------|-----------------|---------------|
+| 0 (today) | UK4 | always | 03:00 UTC |
+| +1 | UK4+1 | always | 03:00 UTC |
+| +2 | UK4+2 | 6 h | 03:00 UTC |
+| +3, +4 | UK12+3/4 | 12 h | 03:00 UTC |
+| +5, +6 | UK12+5/6 | 24 h | 03:00 UTC |
+
+`refresh_after` is how long a chart may be held before the build asks RASP
+for a newer one. `expire_hour` is when it stops being publishable however
+recently it was fetched.
+
+Expiry is a **clock time rather than a duration** on purpose: a forecast is
+*for a calendar day*, so what makes yesterday's chart worthless is not that
+N hours elapsed, it is that the overnight model run happened. A rolling age
+would let a chart fetched at 23:00 outlive one fetched at 06:00 for no good
+reason. Everything held is dropped at the same daily boundary.
+
+`refresh_after` is what varies by horizon. Today and tomorrow always chase
+the latest — the UK4 "today" curve moves intra-day and tomorrow is the day
+you decide on. Further out the model only regenerates about twice a day, so
+a shorter interval would re-fetch identical bytes, and every request avoided
+is one less chance of tripping the bot protection.
+
+One non-obvious interaction: **expiry independently forces a fetch**, i.e.
+`fetch if nothing held OR expired OR older than refresh_after`. Without
+that last clause a 24-hour refresh interval combined with an 03:00 expiry
+would let a chart expire before its own refresh window opened, blanking the
+day for hours while it waited for permission to try.
+
+### Three states, not two
+
+| State | Meaning | Published? |
+|-------|---------|------------|
+| `ok` | fetched this run | yes |
+| `cached` | held, still inside its refresh window — normal | yes |
+| `carried` | held because the refresh *failed* — degraded but usable | yes |
+| *(expired)* | past `expire_hour` with no success since | no — placeholder |
+
+Anything not fetched this run says so on the entry:
+
+```
+Chart retrieved 2026-08-06 14:00 UTC
+Not refreshed since - 1.0h old as of 15:00 UTC
+From the UK12+4 run - UK4+1 not yet available
+```
+
+That third line matters. A date walks UK12+6 → … → UK4 as it approaches, so
+a fallback chart can come from a coarser model than the slot wants. Showing
+12 km data in a 4 km slot without saying so is exactly what the original
+rule existed to prevent.
+
+Only once a day passes `expire_hour` with no successful fetch is it blanked:
 
 ```
    ⟳ RASP data unavailable
 ```
 
 Opening it explains that there is no forecast for that day and that a retry
-is coming. A later scheduled run then replaces it (same event UID) as soon
-as RASP is serving that chart again, so a bad morning costs you an hour of
-one day's entry rather than the rest of the day. Why the fetch failed —
-server unreachable, chart not yet regenerated, chart unparseable — is
-operational detail that stays in the Actions log and `build_state.json`,
-not in a calendar entry.
+is coming. A later run replaces it (same event UID) as soon as RASP serves
+that chart again. Why the fetch failed — unreachable, not yet regenerated,
+intercepted, unparseable — is operational detail that stays in the Actions
+log and `build_state.json`, never in a calendar entry.
+
+### Where the fallback comes from
+
+There is no cache to configure. The Pages artifact already contains
+`build_state.json` *and* every chart PNG, so **the published site is the
+last-known-good store** — the workflow passes its own site URL as
+`--previous-base`, and the build pulls back exactly what subscribers are
+currently being served. Nothing to evict, nothing to expire out from under
+you, and a cold start (no site yet) simply means no fallback that run.
+
+Transient transport errors are retried twice with backoff. Interception is
+*not* retried: each Actions job holds one IP, so if that IP is being
+challenged, retrying from the same runner is challenged too. A fresh runner
+on the next slot is the effective retry.
 
 Each run writes `public/build_state.json` recording which of the seven models
 came back:
 
 ```json
-{ "run_date": "2026-07-29", "complete": false, "days_ok": 6, "days_failed": 1,
-  "days": [ { "date": "2026-08-03", "model": "UK12+5", "status": "stale",
-              "reason": "chart Last-Modified 2026-07-28 is from before today" } ] }
+{ "generated_utc": "2026-08-07T06:00:04Z", "run_date": "2026-08-07",
+  "complete": true, "days_ok": 7, "days_fresh": 2, "days_held": 5,
+  "days_failed": 0,
+  "days": [
+    { "date": "2026-08-07", "model": "UK4",    "source_model": "UK4",
+      "status": "ok",     "fetched_utc": "2026-08-07T06:00:04Z" },
+    { "date": "2026-08-09", "model": "UK4+2",  "source_model": "UK4+2",
+      "status": "cached", "fetched_utc": "2026-08-07T04:14:11Z" }
+  ] }
 ```
 
-Every scheduled run reads that file first: if the last run covered today
-with all seven days and the data is younger than `MAX_AGE_MIN` (set in the
-workflow), it exits in a few seconds without rebuilding, committing or
-redeploying. So the hourly slots cost almost nothing on a normal day and
-only do real work when there's a gap to close — or when the data has aged
-out, which is how the volatile UK4 "today" curve still picks up RASP's
-intra-day reruns without any fixed "always rebuild" slots.
+This file has two readers. The workflow uses the top-level fields to decide
+whether to build at all. The *next run* uses the per-day `fetched_utc` and
+`source_model` to find and age the charts it already holds — which is why
+it is published alongside the charts rather than kept only in git.
+
+`days_ok` counts everything publishable however obtained; `days_fresh` is
+what actually came from RASP this run. A healthy steady state looks like
+`days_fresh: 2, days_held: 5` — today and tomorrow refreshed, the rest
+inside their windows.
 
 ## Scheduling reliability
 
@@ -282,22 +377,28 @@ at an early-bird build — an overnight slot with nothing to do costs about
 ten seconds.
 
 What actually makes the schedule reliable is treating it as lossy: no
-single firing matters. Every hourly slot re-runs the same decision —
-rebuild if the published data is incomplete, from the wrong UTC day, or
-older than `MAX_AGE_MIN` — so a dropped slot just defers to the next
-surviving one, and any run that finds a gap closes it. There is
-deliberately no distinction between "anchor" and "recheck" runs any more:
+single firing matters. Every slot re-runs the same decision, so a dropped
+one defers to the next survivor, and any run that finds a gap closes it.
+There is deliberately no distinction between "anchor" and "recheck" runs:
 an earlier design with unconditional anchor crons plus conditional hourly
 rechecks left a dropped anchor uncompensated (the next recheck saw complete
 state and skipped, so the "today" curve stayed stale), and told the two
 apart by parsing the cron string, which made the schedule fragile to edit.
 
-One sizing rule for `MAX_AGE_MIN`, learned the slow way: it is a **floor,
-not an interval**. The real refresh period is the floor plus the wait for
-the next slot that actually arrives — measured 136–180 minutes between
-arrivals over 2026-08-04..06. Keep the floor below that minimum gap: at 180
-it sat just above it and silently skipped alternate surviving runs, turning
-a nominal 3-hour policy into a ~5-hour one. It is 120 now.
+`MAX_AGE_MIN` is now only a **debounce** — a floor on the gap between
+builds, currently 45 minutes, well under the smallest gap ever observed
+between real runs (136 min), so in practice it never binds. It exists for
+the day GitHub delivers all 24 slots at once.
+
+It used to be the freshness policy, and that is worth recording because the
+failure was silent. A single global age threshold is a **floor, not an
+interval**: the real refresh period is the threshold plus the wait for the
+next slot that actually arrives. At 180 minutes it sat just *above* the
+136–180 minute gap between arrivals and skipped alternate surviving runs,
+turning a nominal 3-hour policy into a ~5-hour one with nothing failing to
+show it. The deeper problem is that one number cannot express "today
+matters more than next Tuesday" — which is why freshness now lives in the
+per-horizon `FRESHNESS` table instead. Don't grow this one back.
 
 If a firing ever becomes genuinely load-bearing, don't lean harder on GitHub's
 scheduler — trigger `workflow_dispatch` from an external scheduler via the
@@ -329,9 +430,12 @@ debugging a quiet morning:
 
 - RASP model runs update through the day. The "today" curve (UK4) refreshes
   more than once; fetching after ~10 am UK gives the most trustworthy
-  outlook for the afternoon. The max-age rule keeps rebuilding every couple
-  of hours through the day, so the late-morning and afternoon reruns are
-  picked up as a matter of course.
+  outlook for the afternoon. Today and tomorrow are re-fetched on every
+  surviving slot, so the late-morning and afternoon reruns are picked up as
+  a matter of course.
+- Expect a burst of seven requests on the first run after 03:00 UTC each
+  day, when everything held expires at once, then two per run for the rest
+  of the day. That is the intended shape, not a fault.
 - The parser assumes the chart template is unchanged. If the RASP admins
   alter the chart colour, axis range, or size, the line-colour constant
   may need updating. The audit-trail PNGs in `/charts` make any drift

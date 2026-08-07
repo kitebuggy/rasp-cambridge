@@ -78,6 +78,11 @@ public/index.html (workflow heredoc) →  humans landing on the Pages site
   (safe direction, but wasteful and easy to miss).
 - **Commit step's `git add public/` ↔ `.gitignore`.** The ignore rules are
   the only thing keeping the ICS and chart PNGs out of git.
+- **Published site ↔ next build.** The workflow passes
+  `--previous-base https://<owner>.github.io/<repo>`, so the deployed
+  artifact is an *input* to the following run (`load_published_state`,
+  `fetch_published_chart`). Breaking the deploy breaks carry-forward;
+  removing charts from the artifact silently disables it.
 - **Prune step ↔ freshness rule.** `rm -rf public/charts`, `rm -f
   public/cambridge_rasp.ics` before each build is deliberate (no
   inheritance of stale output); build_state.json is exempt because the next

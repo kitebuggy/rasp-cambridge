@@ -167,9 +167,12 @@ jobs:
             elif [ "$complete" != "True" ]; then
               decision=true;  reason="state for $today has $failed day(s) missing - rebuilding"
             elif [ "$age_min" -ge "$MAX_AGE_MIN" ]; then
-              decision=true;  reason="data is ${age_min}m old, max ${MAX_AGE_MIN}m - refreshing"
+              # NOT a freshness test - see MAX_AGE_MIN above.  Which days
+              # actually get re-fetched is decided per horizon by the
+              # FRESHNESS table in rasp_stars.py, after this step.
+              decision=true;  reason="last build ${age_min}m ago (debounce ${MAX_AGE_MIN}m) - building; per-day freshness decided in rasp_stars.py"
             else
-              decision=false; reason="data is ${age_min}m old and complete for $today - nothing to do"
+              decision=false; reason="last build only ${age_min}m ago - debounced, min gap ${MAX_AGE_MIN}m"
             fi
           fi
           echo "build=$decision" >> "$GITHUB_OUTPUT"

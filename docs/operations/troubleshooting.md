@@ -33,10 +33,13 @@ rate is contributing before increasing it.
 still serving yesterday's file. Normal in the early morning and for
 long-range UK12 days.
 
-**Solution:** none needed - this is the freshness guard working. The day is
-published as a placeholder and a later run picks up the regenerated chart.
-Do NOT weaken the `Last-Modified` check or fall back to the stale chart
-(AI_README Critical rule 1).
+**Solution:** none needed - this is the freshness guard working. The day
+falls back to the chart we last fetched ourselves (labelled with its
+retrieval time), or becomes a placeholder if that has expired; a later run
+picks up the regenerated chart. Do NOT weaken the `Last-Modified` check or
+use the stale RASP chart: that file is mislabelled at source, which is a
+different thing from our own dated carry-forward. See AI_README Critical
+rule 1.
 
 ### Issue: `Implausible x-tick count N (expected 12..32)` or other parse failure
 
@@ -61,10 +64,12 @@ sitting on a non-default branch; or the decide step is correctly no-opping
 because the published data is fresh and complete.
 
 **Solution:** check the Actions run list for decide-step summary lines
-("Rebuild: false - data is 47m old and complete..." is healthy). A wholly
-quiet morning usually self-heals at the next dispatched slot; the max-age
-rule forces a rebuild once data ages past `MAX_AGE_MIN`. For guaranteed
-timing, see the external-scheduler note in `scheduling.md`.
+("Rebuild: true - last build 104m ago (debounce 45m) - building..." is
+healthy; "debounced, min gap 45m" means two slots arrived close together).
+A wholly quiet morning usually self-heals at the next dispatched slot, and
+since 2026-08-06 it no longer blanks the calendar - the days keep
+publishing from held charts until 03:00 UTC. For guaranteed timing, see the
+external-scheduler note in `scheduling.md`.
 
 ### Issue: Jason's local `git add`/`commit` dies with "Unable to create index.lock: File exists"
 
@@ -77,6 +82,20 @@ unlink, so a zero-byte `.git/index.lock` is left behind (happened
 AI sessions prefix every read-only git command with `GIT_OPTIONAL_LOCKS=0`
 and check `ls .git/*.lock` afterwards; modifying git is Jason-only
 (AI_README Critical rule 5).
+
+### Issue: entries say "Not refreshed since - N.Nh old"
+
+**Cause:** normal. That day was published from a chart already held rather
+than re-fetched - either because it was inside its `refresh_after` window
+(`status: cached`) or because the refresh failed and the held chart was
+still in date (`status: carried`). Check `build_state.json` to tell which.
+
+**Solution:** none, unless it persists past 03:00 UTC - everything held
+expires at that boundary, so a stuck timestamp the following morning means
+fetches are failing. Then treat it as an intercept/parse problem above. A
+line reading "From the UK12+4 run - UK4+1 not yet available" additionally
+means the held chart is from a coarser model than the slot wants; also
+normal, and it clears once that day's finer model is fetched.
 
 ### Issue: chart image missing in Outlook / Google Calendar
 

@@ -18,7 +18,7 @@ rasp_cambridge/                     (GitHub: kitebuggy/rasp-cambridge)
 │   │                               Deliberately NO pip ecosystem - deps float.
 │   └── workflows/
 │       └── build-rasp.yml          The pipeline: one hourly cron, decide step
-│                                   (MAX_AGE_MIN), build job (generate + commit state),
+│                                   (MAX_AGE_MIN debounce), build job (generate + commit),
 │                                   deploy job (Pages). Comments are documentation.
 ├── docs/                          Project documentation
 │   ├── index.md                    Doc index + doc conventions

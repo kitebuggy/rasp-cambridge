@@ -22,12 +22,45 @@ the rules that must not be broken.
 
 ## Critical rules
 
-1. **Never publish stale forecast data.** A previous run's star rating is
-   never carried forward - a day that cannot be fetched or parsed becomes a
-   "⟳ RASP data unavailable" placeholder event, replaced by retry (same UID).
-   Do not add caching, carry-forward, or "last known good" fallbacks. The
-   workflow's prune step (deleting charts and the ICS before each build) is
-   deliberate, not an oversight.
+1. **Never publish stale data *unlabelled*.** The rule is that a reader
+   must never mistake an old rating for a current one. Until 2026-08-06 that
+   was enforced by refusing to carry anything forward at all; it now works
+   by carrying charts forward **with their retrieval time stated on the
+   entry**, and blanking only once the data is genuinely obsolete.
+
+   *What the rule was always for* (Jason, 2026-08-06): stopping a new day's
+   fetch from silently reverting to a day-old view of the forecast. Two
+   distinct ways that can happen, and both are still closed:
+   - RASP serves yesterday's file for a model it has not regenerated →
+     rejected by the `Last-Modified` guard in `fetch_png`.
+   - A chart we fetched ourselves survives past the overnight model run →
+     dropped by `expire_hour` (03:00 UTC) in `FRESHNESS`.
+
+   What is *not* a violation is republishing a chart fetched a few hours
+   ago, within the same forecast day, with its age on the entry.
+
+   *Why it changed:* every run pruned, re-fetched all seven charts and
+   redeployed, so one failed fetch **destroyed** good published data - a
+   single timeout blanked the whole week for every subscriber. "We could not
+   fetch" and "the forecast is unknown" are different things and only the
+   second deserves a blank.
+
+   The policy is the `FRESHNESS` table at the top of `rasp_stars.py`:
+   `refresh_after` (when to try RASP again; today and tomorrow = always) and
+   `expire_hour` (03:00 UTC - when a held chart stops being publishable
+   however recently fetched). Expiry is a clock time, not a duration,
+   because what invalidates a chart is the overnight model run, not elapsed
+   hours. **Expiry also independently forces a fetch** - without that, a
+   24 h refresh interval could let a chart expire before its own refresh
+   window opened. Do not remove that clause.
+
+   Still true: past `expire_hour` a day becomes a "⟳ RASP data unavailable"
+   placeholder, replaced by retry (same UID). Still true: the prune step is
+   deliberate - the build re-downloads what it keeps from the published
+   site, so pruning does not lose anything. What is now WRONG to "restore":
+   deleting the carry-forward path, or dropping the provenance lines from
+   entries. If you find yourself removing the retrieval timestamps, you are
+   reintroducing the exact confusion this rule exists to prevent.
 
 2. **Diagnostics never go in the ICS.** Why a fetch failed (HTTP status,
    intercept-page title, parser message) belongs in stderr (the Actions log)
@@ -40,19 +73,33 @@ the rules that must not be broken.
    is irrelevant to subscribers, and tracking these files cost ~500 KB of
    permanent history per rebuild before it was stopped. `.gitignore` excludes
    them; the workflow's `git add public/` relies on that. What IS committed:
-   `public/build_state.json` (the only cross-run persistence - the decide
-   step reads it), the two CSVs, and `index.html`.
+   `public/build_state.json` (read by the decide step), the two CSVs, and
+   `index.html`.
 
-4. **`MAX_AGE_MIN` is the entire scheduling policy.** One hourly cron, no
-   anchor/recheck split, and a decide step that rebuilds when data is
-   missing, from the wrong UTC day, or older than `MAX_AGE_MIN`. The value
-   is a FLOOR, not an interval - keep it below the measured minimum gap
-   between slots GitHub actually dispatches, or it silently skips alternate
-   runs. Do not reintroduce schedule classification (parsing
-   `github.event.schedule`) and do not treat GitHub cron as reliable - it
-   is measured lossy here (roughly a third to two-thirds of slots dropped,
-   delays to +75 min). See `docs/operations/scheduling.md` before touching
-   the schedule or the minute.
+   The artifact has a **second job**: because it publishes both the charts
+   and `build_state.json`, the live site is the build's last-known-good
+   store (`--previous-base`). Breaking the deploy therefore also breaks
+   carry-forward. Do not "tidy" the charts out of the artifact.
+
+4. **`MAX_AGE_MIN` is a debounce, not the freshness policy.** One hourly
+   cron, no anchor/recheck split, and a decide step that rebuilds unless the
+   previous build was under `MAX_AGE_MIN` (45 min) ago. Freshness is decided
+   per forecast day by `FRESHNESS` in `rasp_stars.py` (rule 1), *after* this
+   step has said yes.
+
+   It used to be the whole policy, and that failed silently: a single global
+   age threshold is a FLOOR, not an interval - the real refresh period is
+   the threshold plus the wait for the next slot GitHub actually dispatches.
+   At 180 min it sat just above the measured 136-180 min gap between
+   arrivals and skipped alternate surviving runs, halving the build rate
+   with nothing failing. **Do not grow it back into a freshness knob** - one
+   number cannot express "today matters more than next Tuesday".
+
+   Also: do not reintroduce schedule classification (parsing
+   `github.event.schedule`), and do not treat GitHub cron as reliable - it
+   is measured lossy here (a third to two-thirds of slots dropped, delays to
+   +75 min). See `docs/operations/scheduling.md` before touching the
+   schedule or the minute.
 
 5. **Git discipline.** Jason runs all modifying git commands (add, commit,
    push, checkout, fetch...) himself - never run them from an AI session.
@@ -121,14 +168,27 @@ the rules that must not be broken.
 4. Changing the schedule → `docs/operations/scheduling.md` first, and treat
    any new minute choice as a hypothesis to measure, not a fix.
 5. Verify Python changes run locally: `python3 rasp_stars.py --out-dir ./out`
-   (add `--ics` / `--state` to exercise the writers). Exit code is 0 even
-   with failed days - completeness is signalled via the state file, not the
-   exit code.
+   (add `--ics` / `--state` to exercise the writers, and `--previous-base
+   https://kitebuggy.github.io/rasp-cambridge` to exercise carry-forward).
+   Exit code is 0 even with failed days - completeness is signalled via the
+   state file, not the exit code.
+6. Changing freshness behaviour → the degraded paths are what matter, and
+   they are cheap to test by stubbing `fetch_png` /
+   `fetch_published_chart` / `load_published_state` and calling `run()`.
+   Cover at least: all-fetch, total failure with charts in date, total
+   failure with charts past 03:00Z, nothing held, mixed refresh windows,
+   and coarser-model fallback. Note days +2..+6 usually make no request at
+   all, so a "total failure" run hits RASP twice, not seven times.
 
 ## Common mistakes
 
-- "Helpfully" falling back to yesterday's rating when RASP is down
-  (violates rule 1 - the failure mode this repo is designed around).
+- Removing the carry-forward path or the "Chart retrieved ..." provenance
+  lines because an older comment says never to carry data forward. Rule 1
+  changed on 2026-08-06 - read it before "restoring" the old behaviour.
+- Conflating the two kinds of old data: a `StaleChartError` chart (RASP
+  serving *yesterday's file* for a model it has not regenerated) is still
+  rejected outright. Carry-forward reuses *our own* previously-fetched
+  chart, dated on the entry. Never weaken the `Last-Modified` guard.
 - Putting failure detail into calendar entries (violates rule 2).
 - Re-adding `public/cambridge_rasp.ics` or `public/charts/*.png` to git -
   the workflow's `git add public/` silently re-adds them if `.gitignore` is
