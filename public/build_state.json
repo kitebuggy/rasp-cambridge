@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-08-09T00:01:12Z",
+  "generated_utc": "2026-08-09T02:50:00Z",
   "run_date": "2026-08-09",
   "complete": false,
   "days_ok": 6,
@@ -53,7 +53,7 @@
       "date": "2026-08-15",
       "model": "UK12+6",
       "status": "intercepted",
-      "reason": "not a PNG - HTTP 200; content-type text/html; 11954 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11980 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     }
   ]
 }
