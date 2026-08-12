@@ -1,60 +1,59 @@
 {
-  "generated_utc": "2026-08-11T23:22:35Z",
-  "run_date": "2026-08-11",
-  "complete": true,
-  "days_ok": 7,
-  "days_fresh": 2,
-  "days_held": 5,
-  "days_failed": 0,
+  "generated_utc": "2026-08-12T00:41:22Z",
+  "run_date": "2026-08-12",
+  "complete": false,
+  "days_ok": 6,
+  "days_fresh": 0,
+  "days_held": 6,
+  "days_failed": 1,
   "days": [
     {
-      "date": "2026-08-11",
-      "model": "UK4",
-      "source_model": "UK4",
-      "status": "ok",
-      "fetched_utc": "2026-08-11T23:22:31Z"
-    },
-    {
       "date": "2026-08-12",
-      "model": "UK4+1",
+      "model": "UK4",
       "source_model": "UK4+1",
-      "status": "ok",
+      "status": "carried",
       "fetched_utc": "2026-08-11T23:22:31Z"
     },
     {
       "date": "2026-08-13",
-      "model": "UK4+2",
+      "model": "UK4+1",
       "source_model": "UK4+2",
-      "status": "cached",
+      "status": "carried",
       "fetched_utc": "2026-08-11T17:37:48Z"
     },
     {
       "date": "2026-08-14",
-      "model": "UK12+3",
+      "model": "UK4+2",
       "source_model": "UK12+3",
-      "status": "cached",
+      "status": "carried",
       "fetched_utc": "2026-08-11T17:37:48Z"
     },
     {
       "date": "2026-08-15",
-      "model": "UK12+4",
+      "model": "UK12+3",
       "source_model": "UK12+4",
       "status": "cached",
       "fetched_utc": "2026-08-11T17:37:48Z"
     },
     {
       "date": "2026-08-16",
-      "model": "UK12+5",
+      "model": "UK12+4",
       "source_model": "UK12+5",
-      "status": "cached",
+      "status": "carried",
       "fetched_utc": "2026-08-11T04:52:35Z"
     },
     {
       "date": "2026-08-17",
-      "model": "UK12+6",
+      "model": "UK12+5",
       "source_model": "UK12+6",
       "status": "cached",
       "fetched_utc": "2026-08-11T04:52:35Z"
+    },
+    {
+      "date": "2026-08-18",
+      "model": "UK12+6",
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11959 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     }
   ]
 }
