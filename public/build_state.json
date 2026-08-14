@@ -1,25 +1,25 @@
 {
-  "generated_utc": "2026-08-14T15:28:38Z",
+  "generated_utc": "2026-08-14T16:29:58Z",
   "run_date": "2026-08-14",
   "complete": true,
   "days_ok": 7,
-  "days_fresh": 0,
-  "days_held": 7,
+  "days_fresh": 4,
+  "days_held": 3,
   "days_failed": 0,
   "days": [
     {
       "date": "2026-08-14",
       "model": "UK4",
       "source_model": "UK4",
-      "status": "carried",
-      "fetched_utc": "2026-08-14T14:01:03Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-14T16:29:52Z"
     },
     {
       "date": "2026-08-15",
       "model": "UK4+1",
       "source_model": "UK4+1",
-      "status": "carried",
-      "fetched_utc": "2026-08-14T14:01:03Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-14T16:29:52Z"
     },
     {
       "date": "2026-08-16",
@@ -32,15 +32,15 @@
       "date": "2026-08-17",
       "model": "UK12+3",
       "source_model": "UK12+3",
-      "status": "carried",
-      "fetched_utc": "2026-08-14T03:12:18Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-14T16:29:52Z"
     },
     {
       "date": "2026-08-18",
       "model": "UK12+4",
       "source_model": "UK12+4",
-      "status": "carried",
-      "fetched_utc": "2026-08-14T03:12:18Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-14T16:29:52Z"
     },
     {
       "date": "2026-08-19",
