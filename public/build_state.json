@@ -1,10 +1,10 @@
 {
-  "generated_utc": "2026-08-15T14:57:28Z",
+  "generated_utc": "2026-08-15T15:54:42Z",
   "run_date": "2026-08-15",
   "complete": true,
   "days_ok": 7,
-  "days_fresh": 2,
-  "days_held": 5,
+  "days_fresh": 4,
+  "days_held": 3,
   "days_failed": 0,
   "days": [
     {
@@ -12,14 +12,14 @@
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-08-15T14:57:25Z"
+      "fetched_utc": "2026-08-15T15:54:36Z"
     },
     {
       "date": "2026-08-16",
       "model": "UK4+1",
       "source_model": "UK4+1",
       "status": "ok",
-      "fetched_utc": "2026-08-15T14:57:25Z"
+      "fetched_utc": "2026-08-15T15:54:36Z"
     },
     {
       "date": "2026-08-17",
@@ -32,15 +32,15 @@
       "date": "2026-08-18",
       "model": "UK12+3",
       "source_model": "UK12+3",
-      "status": "cached",
-      "fetched_utc": "2026-08-15T03:21:21Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-15T15:54:36Z"
     },
     {
       "date": "2026-08-19",
       "model": "UK12+4",
       "source_model": "UK12+4",
-      "status": "cached",
-      "fetched_utc": "2026-08-15T03:21:21Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-15T15:54:36Z"
     },
     {
       "date": "2026-08-20",
