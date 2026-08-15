@@ -1,25 +1,25 @@
 {
-  "generated_utc": "2026-08-15T19:53:39Z",
+  "generated_utc": "2026-08-15T20:57:17Z",
   "run_date": "2026-08-15",
   "complete": true,
   "days_ok": 7,
-  "days_fresh": 0,
-  "days_held": 7,
+  "days_fresh": 2,
+  "days_held": 5,
   "days_failed": 0,
   "days": [
     {
       "date": "2026-08-15",
       "model": "UK4",
       "source_model": "UK4",
-      "status": "carried",
-      "fetched_utc": "2026-08-15T19:01:23Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-15T20:57:15Z"
     },
     {
       "date": "2026-08-16",
       "model": "UK4+1",
       "source_model": "UK4+1",
-      "status": "carried",
-      "fetched_utc": "2026-08-15T19:01:23Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-15T20:57:15Z"
     },
     {
       "date": "2026-08-17",
