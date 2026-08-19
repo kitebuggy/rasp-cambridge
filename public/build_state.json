@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-08-19T04:20:42Z",
+  "generated_utc": "2026-08-19T05:06:54Z",
   "run_date": "2026-08-19",
   "complete": true,
   "days_ok": 7,
@@ -12,14 +12,14 @@
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-08-19T04:20:37Z"
+      "fetched_utc": "2026-08-19T05:06:52Z"
     },
     {
       "date": "2026-08-20",
       "model": "UK4+1",
       "source_model": "UK4+1",
       "status": "ok",
-      "fetched_utc": "2026-08-19T04:20:37Z"
+      "fetched_utc": "2026-08-19T05:06:52Z"
     },
     {
       "date": "2026-08-21",
