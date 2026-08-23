@@ -1,25 +1,25 @@
 {
-  "generated_utc": "2026-08-23T04:20:54Z",
+  "generated_utc": "2026-08-23T05:06:07Z",
   "run_date": "2026-08-23",
-  "complete": true,
-  "days_ok": 7,
+  "complete": false,
+  "days_ok": 6,
   "days_fresh": 2,
-  "days_held": 5,
-  "days_failed": 0,
+  "days_held": 4,
+  "days_failed": 1,
   "days": [
     {
       "date": "2026-08-23",
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-08-23T04:20:51Z"
+      "fetched_utc": "2026-08-23T05:06:04Z"
     },
     {
       "date": "2026-08-24",
       "model": "UK4+1",
       "source_model": "UK4+1",
       "status": "ok",
-      "fetched_utc": "2026-08-23T04:20:51Z"
+      "fetched_utc": "2026-08-23T05:06:04Z"
     },
     {
       "date": "2026-08-25",
@@ -31,9 +31,8 @@
     {
       "date": "2026-08-26",
       "model": "UK12+3",
-      "source_model": "UK12+3",
-      "status": "cached",
-      "fetched_utc": "2026-08-23T03:33:51Z"
+      "status": "fetch",
+      "reason": "held chart could not be retrieved from the site"
     },
     {
       "date": "2026-08-27",
