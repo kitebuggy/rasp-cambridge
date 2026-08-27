@@ -1,60 +1,60 @@
 {
-  "generated_utc": "2026-08-26T21:12:48Z",
-  "run_date": "2026-08-26",
+  "generated_utc": "2026-08-27T01:03:15Z",
+  "run_date": "2026-08-27",
   "complete": true,
   "days_ok": 7,
-  "days_fresh": 2,
-  "days_held": 5,
+  "days_fresh": 5,
+  "days_held": 2,
   "days_failed": 0,
   "days": [
     {
-      "date": "2026-08-26",
+      "date": "2026-08-27",
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-08-26T21:12:46Z"
-    },
-    {
-      "date": "2026-08-27",
-      "model": "UK4+1",
-      "source_model": "UK4+1",
-      "status": "ok",
-      "fetched_utc": "2026-08-26T21:12:46Z"
+      "fetched_utc": "2026-08-27T01:03:01Z"
     },
     {
       "date": "2026-08-28",
-      "model": "UK4+2",
-      "source_model": "UK4+2",
-      "status": "cached",
-      "fetched_utc": "2026-08-26T18:21:20Z"
+      "model": "UK4+1",
+      "source_model": "UK4+1",
+      "status": "ok",
+      "fetched_utc": "2026-08-27T01:03:01Z"
     },
     {
       "date": "2026-08-29",
-      "model": "UK12+3",
-      "source_model": "UK12+3",
-      "status": "cached",
-      "fetched_utc": "2026-08-26T16:04:42Z"
+      "model": "UK4+2",
+      "source_model": "UK4+2",
+      "status": "ok",
+      "fetched_utc": "2026-08-27T01:03:01Z"
     },
     {
       "date": "2026-08-30",
-      "model": "UK12+4",
+      "model": "UK12+3",
       "source_model": "UK12+4",
       "status": "cached",
       "fetched_utc": "2026-08-26T16:04:42Z"
     },
     {
       "date": "2026-08-31",
+      "model": "UK12+4",
+      "source_model": "UK12+4",
+      "status": "ok",
+      "fetched_utc": "2026-08-27T01:03:01Z"
+    },
+    {
+      "date": "2026-09-01",
       "model": "UK12+5",
-      "source_model": "UK12+5",
+      "source_model": "UK12+6",
       "status": "cached",
       "fetched_utc": "2026-08-26T03:37:34Z"
     },
     {
-      "date": "2026-09-01",
+      "date": "2026-09-02",
       "model": "UK12+6",
       "source_model": "UK12+6",
-      "status": "cached",
-      "fetched_utc": "2026-08-26T03:37:34Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-27T01:03:01Z"
     }
   ]
 }
