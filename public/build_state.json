@@ -1,6 +1,6 @@
 {
-  "generated_utc": "2026-08-29T23:35:18Z",
-  "run_date": "2026-08-29",
+  "generated_utc": "2026-08-30T01:38:34Z",
+  "run_date": "2026-08-30",
   "complete": true,
   "days_ok": 7,
   "days_fresh": 4,
@@ -8,53 +8,53 @@
   "days_failed": 0,
   "days": [
     {
-      "date": "2026-08-29",
+      "date": "2026-08-30",
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-08-29T23:35:13Z"
-    },
-    {
-      "date": "2026-08-30",
-      "model": "UK4+1",
-      "source_model": "UK4+1",
-      "status": "ok",
-      "fetched_utc": "2026-08-29T23:35:13Z"
+      "fetched_utc": "2026-08-30T01:38:29Z"
     },
     {
       "date": "2026-08-31",
-      "model": "UK4+2",
-      "source_model": "UK4+2",
-      "status": "cached",
-      "fetched_utc": "2026-08-29T17:53:57Z"
+      "model": "UK4+1",
+      "source_model": "UK4+1",
+      "status": "ok",
+      "fetched_utc": "2026-08-30T01:38:29Z"
     },
     {
       "date": "2026-09-01",
-      "model": "UK12+3",
+      "model": "UK4+2",
       "source_model": "UK12+3",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-08-29T23:35:13Z"
     },
     {
       "date": "2026-09-02",
-      "model": "UK12+4",
+      "model": "UK12+3",
       "source_model": "UK12+4",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-08-29T23:35:13Z"
     },
     {
       "date": "2026-09-03",
+      "model": "UK12+4",
+      "source_model": "UK12+4",
+      "status": "ok",
+      "fetched_utc": "2026-08-30T01:38:29Z"
+    },
+    {
+      "date": "2026-09-04",
       "model": "UK12+5",
-      "source_model": "UK12+5",
+      "source_model": "UK12+6",
       "status": "cached",
       "fetched_utc": "2026-08-29T09:22:23Z"
     },
     {
-      "date": "2026-09-04",
+      "date": "2026-09-05",
       "model": "UK12+6",
       "source_model": "UK12+6",
-      "status": "cached",
-      "fetched_utc": "2026-08-29T09:22:23Z"
+      "status": "ok",
+      "fetched_utc": "2026-08-30T01:38:29Z"
     }
   ]
 }
