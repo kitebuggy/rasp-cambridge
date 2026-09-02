@@ -1,60 +1,53 @@
 {
-  "generated_utc": "2026-09-02T00:31:11Z",
+  "generated_utc": "2026-09-02T05:03:35Z",
   "run_date": "2026-09-02",
-  "complete": true,
-  "days_ok": 7,
-  "days_fresh": 4,
-  "days_held": 3,
-  "days_failed": 0,
+  "complete": false,
+  "days_ok": 0,
+  "days_fresh": 0,
+  "days_held": 0,
+  "days_failed": 7,
   "days": [
     {
       "date": "2026-09-02",
       "model": "UK4",
-      "source_model": "UK4",
-      "status": "ok",
-      "fetched_utc": "2026-09-02T00:31:06Z"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 12077 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-09-03",
       "model": "UK4+1",
-      "source_model": "UK4+1",
-      "status": "ok",
-      "fetched_utc": "2026-09-02T00:31:06Z"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 12083 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-09-04",
       "model": "UK4+2",
-      "source_model": "UK12+3",
-      "status": "cached",
-      "fetched_utc": "2026-09-01T18:49:23Z"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11907 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-09-05",
       "model": "UK12+3",
-      "source_model": "UK12+4",
-      "status": "cached",
-      "fetched_utc": "2026-09-01T18:49:23Z"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11908 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-09-06",
       "model": "UK12+4",
-      "source_model": "UK12+4",
-      "status": "ok",
-      "fetched_utc": "2026-09-02T00:31:06Z"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11961 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-09-07",
       "model": "UK12+5",
-      "source_model": "UK12+6",
-      "status": "cached",
-      "fetched_utc": "2026-09-01T05:39:10Z"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11917 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     },
     {
       "date": "2026-09-08",
       "model": "UK12+6",
-      "source_model": "UK12+6",
-      "status": "ok",
-      "fetched_utc": "2026-09-02T00:31:06Z"
+      "status": "intercepted",
+      "reason": "not a PNG - HTTP 200; content-type text/html; 11917 bytes; title \"One moment, please...\"; text \"(function(){ setTimeout(function(){ window.location.reload(); }, 5000); }()) One moment, please... .spinner { -webkit-animation: spin 1s ease-out; animation: spin 1s ease-out; } @keyframes spin { 0% {\""
     }
   ]
 }
