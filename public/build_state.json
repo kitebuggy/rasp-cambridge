@@ -1,60 +1,60 @@
 {
-  "generated_utc": "2026-09-05T23:17:54Z",
-  "run_date": "2026-09-05",
+  "generated_utc": "2026-09-06T01:19:29Z",
+  "run_date": "2026-09-06",
   "complete": true,
   "days_ok": 7,
-  "days_fresh": 2,
-  "days_held": 5,
+  "days_fresh": 4,
+  "days_held": 3,
   "days_failed": 0,
   "days": [
     {
-      "date": "2026-09-05",
+      "date": "2026-09-06",
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-09-05T23:17:51Z"
-    },
-    {
-      "date": "2026-09-06",
-      "model": "UK4+1",
-      "source_model": "UK4+1",
-      "status": "ok",
-      "fetched_utc": "2026-09-05T23:17:51Z"
+      "fetched_utc": "2026-09-06T01:19:24Z"
     },
     {
       "date": "2026-09-07",
-      "model": "UK4+2",
-      "source_model": "UK4+2",
-      "status": "cached",
-      "fetched_utc": "2026-09-05T21:41:14Z"
+      "model": "UK4+1",
+      "source_model": "UK4+1",
+      "status": "ok",
+      "fetched_utc": "2026-09-06T01:19:24Z"
     },
     {
       "date": "2026-09-08",
-      "model": "UK12+3",
+      "model": "UK4+2",
       "source_model": "UK12+3",
       "status": "cached",
       "fetched_utc": "2026-09-05T19:27:55Z"
     },
     {
       "date": "2026-09-09",
-      "model": "UK12+4",
+      "model": "UK12+3",
       "source_model": "UK12+4",
       "status": "cached",
       "fetched_utc": "2026-09-05T19:27:55Z"
     },
     {
       "date": "2026-09-10",
+      "model": "UK12+4",
+      "source_model": "UK12+4",
+      "status": "ok",
+      "fetched_utc": "2026-09-06T01:19:24Z"
+    },
+    {
+      "date": "2026-09-11",
       "model": "UK12+5",
-      "source_model": "UK12+5",
+      "source_model": "UK12+6",
       "status": "cached",
       "fetched_utc": "2026-09-05T06:18:23Z"
     },
     {
-      "date": "2026-09-11",
+      "date": "2026-09-12",
       "model": "UK12+6",
       "source_model": "UK12+6",
-      "status": "cached",
-      "fetched_utc": "2026-09-05T06:18:23Z"
+      "status": "ok",
+      "fetched_utc": "2026-09-06T01:19:24Z"
     }
   ]
 }
