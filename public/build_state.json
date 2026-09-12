@@ -1,60 +1,60 @@
 {
-  "generated_utc": "2026-09-11T21:54:31Z",
-  "run_date": "2026-09-11",
+  "generated_utc": "2026-09-12T00:37:00Z",
+  "run_date": "2026-09-12",
   "complete": true,
   "days_ok": 7,
-  "days_fresh": 2,
-  "days_held": 5,
+  "days_fresh": 6,
+  "days_held": 1,
   "days_failed": 0,
   "days": [
     {
-      "date": "2026-09-11",
+      "date": "2026-09-12",
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-09-11T21:54:28Z"
-    },
-    {
-      "date": "2026-09-12",
-      "model": "UK4+1",
-      "source_model": "UK4+1",
-      "status": "ok",
-      "fetched_utc": "2026-09-11T21:54:28Z"
+      "fetched_utc": "2026-09-12T00:36:53Z"
     },
     {
       "date": "2026-09-13",
-      "model": "UK4+2",
-      "source_model": "UK4+2",
-      "status": "cached",
-      "fetched_utc": "2026-09-11T19:18:02Z"
+      "model": "UK4+1",
+      "source_model": "UK4+1",
+      "status": "ok",
+      "fetched_utc": "2026-09-12T00:36:53Z"
     },
     {
       "date": "2026-09-14",
-      "model": "UK12+3",
-      "source_model": "UK12+3",
-      "status": "cached",
-      "fetched_utc": "2026-09-11T11:48:00Z"
+      "model": "UK4+2",
+      "source_model": "UK4+2",
+      "status": "ok",
+      "fetched_utc": "2026-09-12T00:36:53Z"
     },
     {
       "date": "2026-09-15",
-      "model": "UK12+4",
-      "source_model": "UK12+4",
-      "status": "cached",
-      "fetched_utc": "2026-09-11T11:48:00Z"
+      "model": "UK12+3",
+      "source_model": "UK12+3",
+      "status": "ok",
+      "fetched_utc": "2026-09-12T00:36:53Z"
     },
     {
       "date": "2026-09-16",
+      "model": "UK12+4",
+      "source_model": "UK12+4",
+      "status": "ok",
+      "fetched_utc": "2026-09-12T00:36:53Z"
+    },
+    {
+      "date": "2026-09-17",
       "model": "UK12+5",
-      "source_model": "UK12+5",
+      "source_model": "UK12+6",
       "status": "cached",
       "fetched_utc": "2026-09-11T11:48:00Z"
     },
     {
-      "date": "2026-09-17",
+      "date": "2026-09-18",
       "model": "UK12+6",
       "source_model": "UK12+6",
-      "status": "cached",
-      "fetched_utc": "2026-09-11T11:48:00Z"
+      "status": "ok",
+      "fetched_utc": "2026-09-12T00:36:53Z"
     }
   ]
 }
