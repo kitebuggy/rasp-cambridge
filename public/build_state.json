@@ -1,11 +1,11 @@
 {
-  "generated_utc": "2026-10-21T17:38:18Z",
+  "generated_utc": "2026-10-21T20:53:03Z",
   "run_date": "2026-10-21",
   "complete": false,
-  "days_ok": 4,
+  "days_ok": 2,
   "days_fresh": 0,
-  "days_held": 4,
-  "days_failed": 3,
+  "days_held": 2,
+  "days_failed": 5,
   "days": [
     {
       "date": "2026-10-21",
@@ -28,16 +28,14 @@
     {
       "date": "2026-10-24",
       "model": "UK12+3",
-      "source_model": "UK12+3",
-      "status": "cached",
-      "fetched_utc": "2026-10-21T06:33:26Z"
+      "status": "parse",
+      "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
       "date": "2026-10-25",
       "model": "UK12+4",
-      "source_model": "UK12+4",
-      "status": "cached",
-      "fetched_utc": "2026-10-21T06:33:26Z"
+      "status": "parse",
+      "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
       "date": "2026-10-26",
