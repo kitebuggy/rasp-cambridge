@@ -1,11 +1,11 @@
 {
-  "generated_utc": "2026-10-22T00:11:55Z",
+  "generated_utc": "2026-10-22T05:20:33Z",
   "run_date": "2026-10-22",
   "complete": false,
-  "days_ok": 1,
+  "days_ok": 0,
   "days_fresh": 0,
-  "days_held": 1,
-  "days_failed": 6,
+  "days_held": 0,
+  "days_failed": 7,
   "days": [
     {
       "date": "2026-10-22",
@@ -40,9 +40,8 @@
     {
       "date": "2026-10-27",
       "model": "UK12+5",
-      "source_model": "UK12+6",
-      "status": "cached",
-      "fetched_utc": "2026-10-21T06:33:26Z"
+      "status": "parse",
+      "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
       "date": "2026-10-28",
