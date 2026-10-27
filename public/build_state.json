@@ -1,6 +1,6 @@
 {
-  "generated_utc": "2026-10-26T20:08:17Z",
-  "run_date": "2026-10-26",
+  "generated_utc": "2026-10-27T00:04:23Z",
+  "run_date": "2026-10-27",
   "complete": false,
   "days_ok": 0,
   "days_fresh": 0,
@@ -8,43 +8,43 @@
   "days_failed": 7,
   "days": [
     {
-      "date": "2026-10-26",
+      "date": "2026-10-27",
       "model": "UK4",
       "status": "parse",
       "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
-      "date": "2026-10-27",
+      "date": "2026-10-28",
       "model": "UK4+1",
       "status": "parse",
       "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
-      "date": "2026-10-28",
+      "date": "2026-10-29",
       "model": "UK4+2",
       "status": "parse",
       "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
-      "date": "2026-10-29",
+      "date": "2026-10-30",
       "model": "UK12+3",
       "status": "parse",
       "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
-      "date": "2026-10-30",
+      "date": "2026-10-31",
       "model": "UK12+4",
       "status": "parse",
       "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
-      "date": "2026-10-31",
+      "date": "2026-11-01",
       "model": "UK12+5",
       "status": "parse",
       "reason": "Implausible x-tick count 2 (expected 12..32)"
     },
     {
-      "date": "2026-11-01",
+      "date": "2026-11-02",
       "model": "UK12+6",
       "status": "parse",
       "reason": "Implausible x-tick count 2 (expected 12..32)"
