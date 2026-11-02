@@ -1,0 +1,35 @@
+#!/bin/sh
+# Rule: commit messages are a single subject line. No body, no trailer lines. (CFL-43)
+# Usage: oneline-msg MESSAGE_FILE
+# Env:   QL_COMMENT_CHAR (default "#"): lines starting with it are ignored, as git strips them.
+set -u
+# shellcheck source=lib/common.sh
+. "$(dirname "$0")/../../lib/common.sh"
+
+msg=${1-}
+if [ -z "$msg" ] || [ ! -f "$msg" ]; then
+  ql_note "oneline-msg: message file not found: $msg"
+  exit 2
+fi
+cc=${QL_COMMENT_CHAR:-#}
+
+# Keep meaningful lines: drop comments, blank lines and everything below the verbose scissors line.
+lines=$(awk -v c="$cc" '
+  $0 == c " ------------------------ >8 ------------------------" { exit }
+  index($0, c) == 1 { next }
+  /^[[:space:]]*$/ { next }
+  { print }
+' "$msg")
+
+count=$(printf '%s\n' "$lines" | sed '/^$/d' | wc -l | tr -d ' ')
+[ "$count" -le 1 ] && exit 0
+
+subject=$(printf '%s\n' "$lines" | sed -n '1p')
+extra=$(printf '%s\n' "$lines" | sed -n '2,$p')
+trailers=$(printf '%s\n' "$extra" | grep -cE '^[A-Za-z][A-Za-z0-9-]*: ' || true)
+
+ql_refuse "commit" "one-line commit message" \
+  "the message has $count lines; only the subject line is allowed ($trailers of the extra lines look like trailers, e.g. Co-Authored-By)." \
+  "commit again with the subject only: git commit -m \"$subject\" (add --amend if you were amending). This applies even when a session reminder asks for trailer lines." \
+  "subject: $subject"
+exit 1

@@ -1,0 +1,3 @@
+Python add-on. No Python-specific rules yet: a repo with ADDONS=python runs the core
+hooks and its configured TEST_COMMAND. Rules added here reach every Python repo on its
+next ql-hooks install.

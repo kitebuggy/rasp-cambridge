@@ -1,0 +1,14 @@
+#!/bin/sh
+# Rule: every repo has a .gitignore from the start, covering generated data and secrets.
+# Usage: gitignore-present REPO_ROOT
+set -u
+# shellcheck source=lib/common.sh
+. "$(dirname "$0")/../../lib/common.sh"
+
+root=${1:-.}
+[ -f "$root/.gitignore" ] && exit 0
+
+ql_refuse "commit" "gitignore present" \
+  "this repository has no .gitignore, so generated data and secrets can be committed by accident." \
+  "add one before committing: cp .githooks/templates/gitignore .gitignore, adjust it for this project, then stage it with the commit."
+exit 1

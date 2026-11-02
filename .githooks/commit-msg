@@ -1,0 +1,3 @@
+#!/bin/sh
+# ql-git-hooks: commit-msg. Logic lives in .githooks/run and .githooks/checks.
+exec "$(dirname "$0")/run" commit-msg "$@"

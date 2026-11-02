@@ -1,0 +1,32 @@
+# ql-git-hooks per-repo configuration. Committed with the repo; parsed, never executed.
+# One KEY=value per line. No inline comments after values.
+
+# Stack add-ons in use, comma separated: rails, jekyll, python
+ADDONS=python
+
+# Full test suite. Set to none if the repo has no tests.
+TEST_COMMAND=none
+
+# Optional faster subset run on pre-push; falls back to TEST_COMMAND when empty.
+PUSH_TEST_COMMAND=
+
+# Commit messages must be a single subject line (CFL-43).
+ONE_LINE_COMMITS=true
+
+# Space-separated globs of staged key/cert/env files allowed anyway (e.g. test/fixtures/*.pem)
+SECRET_FILE_ALLOW=
+
+# Space-separated globs of paths the credential content scan skips
+SECRET_SCAN_EXCLUDE=
+
+# Rails add-on: expected test database name (default: test entry in config/database.yml)
+RAILS_TEST_DATABASE=
+
+# Rails add-on: env files checked for DATABASE_URL, in load order. Add any shared env file.
+RAILS_ENV_FILES=.env.test.local .env.test .env
+
+# Jekyll add-on: files checked for en and em dashes (added lines only)
+DASH_FILE_TYPES=
+
+# Jekyll add-on: paths that are not user-facing (default excludes _docs, _archive, READMEs and similar)
+DASH_EXCLUDE=
