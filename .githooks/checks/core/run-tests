@@ -1,0 +1,35 @@
+#!/bin/sh
+# Rule: a push runs the repo's test command and is refused if it fails. (CFL-40)
+# Usage: run-tests REPO_ROOT
+# Config: TEST_COMMAND       full suite (set to "none" to record that the repo has no tests)
+#         PUSH_TEST_COMMAND  optional faster subset for pre-push; falls back to TEST_COMMAND
+set -u
+# shellcheck source=lib/common.sh
+. "$(dirname "$0")/../../lib/common.sh"
+
+root=${1:-.}
+cmd=$(ql_config_get PUSH_TEST_COMMAND "")
+[ -n "$cmd" ] || cmd=$(ql_config_get TEST_COMMAND "")
+
+if [ -z "$cmd" ]; then
+  ql_refuse "push" "tests pass before push" \
+    "no test command is configured for this repository." \
+    "set TEST_COMMAND in .githooks/config (e.g. TEST_COMMAND=bin/rails test). If the repo has no tests, set TEST_COMMAND=none to record that."
+  exit 1
+fi
+
+if [ "$cmd" = none ]; then
+  ql_note "TEST_COMMAND=none: no tests run for this push."
+  exit 0
+fi
+
+ql_note "running tests before push: $cmd"
+# stdin is closed so the test command cannot consume the ref list git passes to pre-push.
+(cd "$root" && sh -c "$cmd") </dev/null
+status=$?
+[ "$status" -eq 0 ] && exit 0
+
+ql_refuse "push" "tests pass before push" \
+  "the test command failed (exit $status): $cmd" \
+  "fix the failing tests and push again. Never merge or release with failing tests."
+exit 1

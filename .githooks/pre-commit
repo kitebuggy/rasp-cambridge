@@ -1,0 +1,3 @@
+#!/bin/sh
+# ql-git-hooks: pre-commit. Logic lives in .githooks/run and .githooks/checks.
+exec "$(dirname "$0")/run" pre-commit "$@"

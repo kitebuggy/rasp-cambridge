@@ -1,0 +1,32 @@
+# Secrets: values live in 1Password and are referenced with op://
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+
+# OS and editor files
+.DS_Store
+*~
+*.swp
+
+# Logs, temporary and generated data
+log/
+logs/
+tmp/
+*.log
+coverage/
+
+# Dependencies and build output
+node_modules/
+vendor/bundle/
+.bundle/
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+_site/
+.jekyll-cache/

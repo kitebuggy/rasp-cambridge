@@ -1,0 +1,70 @@
+#!/bin/sh
+# ql-git-hooks dispatcher. Installed at .githooks/run; the hook files and husky hooks call it.
+# Usage: .githooks/run HOOK [ARGS...]
+set -u
+QL_HOOKS_DIR=$(cd "$(dirname "$0")" && pwd)
+export QL_HOOKS_DIR
+. "$QL_HOOKS_DIR/lib/common.sh"
+
+hook=${1-}
+[ $# -gt 0 ] && shift
+checks="$QL_HOOKS_DIR/checks"
+top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$(cd "$QL_HOOKS_DIR/.." && pwd)
+
+if [ ! -f "$QL_HOOKS_DIR/config" ]; then
+  ql_note "no .githooks/config found; using defaults (run ql-hooks install to create one)."
+fi
+
+failed=0
+run_addons() {
+  for _addon in $(ql_addons); do
+    if [ -x "$checks/$_addon/$1" ]; then
+      "$checks/$_addon/$1" "$top" || failed=1
+    fi
+  done
+}
+
+case $hook in
+  commit-msg)
+    if ql_is_true "$(ql_config_get ONE_LINE_COMMITS true)"; then
+      cc=$(git config --get core.commentChar 2>/dev/null || true)
+      case $cc in "" | auto) cc="#" ;; esac
+      QL_COMMENT_CHAR=$cc "$checks/core/oneline-msg" "$1" || failed=1
+    fi
+    run_addons commit-msg
+    ;;
+
+  pre-commit)
+    "$checks/core/gitignore-present" "$top" || failed=1
+    git diff --cached --name-only --diff-filter=ACMR | "$checks/core/secret-files" || failed=1
+    git diff --cached -U0 --no-color --no-ext-diff --diff-filter=ACMR | "$checks/core/secret-content" || failed=1
+    run_addons pre-commit
+    ;;
+
+  pre-push)
+    # git passes "<local ref> <local sha> <remote ref> <remote sha>" lines; skip tests
+    # when every ref being pushed is a deletion.
+    zero=0000000000000000000000000000000000000000
+    updates=0
+    while read -r _lref _lsha _rref _rsha; do
+      case $_lsha in "$zero" | 0000000000000000000000000000000000000000000000000000000000000000) ;; *) updates=1 ;; esac
+    done
+    if [ "$updates" -eq 0 ] && [ -z "${QL_HOOKS_FORCE_TESTS:-}" ]; then
+      exit 0
+    fi
+    run_addons pre-push
+    [ "$failed" -eq 0 ] || exit 1
+    "$checks/core/run-tests" "$top" || failed=1
+    ;;
+
+  "")
+    ql_note "usage: .githooks/run HOOK [ARGS...]"
+    exit 2
+    ;;
+
+  *)
+    run_addons "$hook"
+    ;;
+esac
+
+exit "$failed"
