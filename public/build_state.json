@@ -1,10 +1,10 @@
 {
-  "generated_utc": "2026-11-12T17:43:59Z",
+  "generated_utc": "2026-11-12T22:52:11Z",
   "run_date": "2026-11-12",
   "complete": true,
   "days_ok": 7,
-  "days_fresh": 7,
-  "days_held": 0,
+  "days_fresh": 2,
+  "days_held": 5,
   "days_failed": 0,
   "days": [
     {
@@ -12,48 +12,48 @@
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-11-12T17:43:51Z"
+      "fetched_utc": "2026-11-12T22:52:07Z"
     },
     {
       "date": "2026-11-13",
       "model": "UK4+1",
       "source_model": "UK4+1",
       "status": "ok",
-      "fetched_utc": "2026-11-12T17:43:51Z"
+      "fetched_utc": "2026-11-12T22:52:07Z"
     },
     {
       "date": "2026-11-14",
       "model": "UK4+2",
       "source_model": "UK4+2",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-11-12T17:43:51Z"
     },
     {
       "date": "2026-11-15",
       "model": "UK12+3",
       "source_model": "UK12+3",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-11-12T17:43:51Z"
     },
     {
       "date": "2026-11-16",
       "model": "UK12+4",
       "source_model": "UK12+4",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-11-12T17:43:51Z"
     },
     {
       "date": "2026-11-17",
       "model": "UK12+5",
       "source_model": "UK12+5",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-11-12T17:43:51Z"
     },
     {
       "date": "2026-11-18",
       "model": "UK12+6",
       "source_model": "UK12+6",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-11-12T17:43:51Z"
     }
   ]
