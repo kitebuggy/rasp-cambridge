@@ -1,60 +1,60 @@
 {
-  "generated_utc": "2026-11-18T21:35:02Z",
-  "run_date": "2026-11-18",
+  "generated_utc": "2026-11-19T02:48:04Z",
+  "run_date": "2026-11-19",
   "complete": true,
   "days_ok": 7,
-  "days_fresh": 5,
-  "days_held": 2,
+  "days_fresh": 4,
+  "days_held": 3,
   "days_failed": 0,
   "days": [
     {
-      "date": "2026-11-18",
+      "date": "2026-11-19",
       "model": "UK4",
       "source_model": "UK4",
       "status": "ok",
-      "fetched_utc": "2026-11-18T21:34:55Z"
-    },
-    {
-      "date": "2026-11-19",
-      "model": "UK4+1",
-      "source_model": "UK4+1",
-      "status": "ok",
-      "fetched_utc": "2026-11-18T21:34:55Z"
+      "fetched_utc": "2026-11-19T02:48:00Z"
     },
     {
       "date": "2026-11-20",
-      "model": "UK4+2",
-      "source_model": "UK4+2",
+      "model": "UK4+1",
+      "source_model": "UK4+1",
       "status": "ok",
-      "fetched_utc": "2026-11-18T21:34:55Z"
+      "fetched_utc": "2026-11-19T02:48:00Z"
     },
     {
       "date": "2026-11-21",
-      "model": "UK12+3",
+      "model": "UK4+2",
       "source_model": "UK12+3",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-11-18T21:34:55Z"
     },
     {
       "date": "2026-11-22",
-      "model": "UK12+4",
+      "model": "UK12+3",
       "source_model": "UK12+4",
-      "status": "ok",
+      "status": "cached",
       "fetched_utc": "2026-11-18T21:34:55Z"
     },
     {
       "date": "2026-11-23",
+      "model": "UK12+4",
+      "source_model": "UK12+4",
+      "status": "ok",
+      "fetched_utc": "2026-11-19T02:48:00Z"
+    },
+    {
+      "date": "2026-11-24",
       "model": "UK12+5",
-      "source_model": "UK12+5",
+      "source_model": "UK12+6",
       "status": "cached",
       "fetched_utc": "2026-11-18T04:42:19Z"
     },
     {
-      "date": "2026-11-24",
+      "date": "2026-11-25",
       "model": "UK12+6",
       "source_model": "UK12+6",
-      "status": "cached",
-      "fetched_utc": "2026-11-18T04:42:19Z"
+      "status": "ok",
+      "fetched_utc": "2026-11-19T02:48:00Z"
     }
   ]
 }
